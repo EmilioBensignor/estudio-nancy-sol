@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spec — Modelo de Datos Estudio Nancy Sol</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #f8f9fa; color: #212529; line-height: 1.6; padding: 2rem; }
+  .container { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin-bottom: 0.25rem; color: #1a1a2e; }
+  .meta { font-size: 0.85rem; color: #666; margin-bottom: 2rem; }
+  h2 { font-size: 1.1rem; margin: 2rem 0 0.75rem; padding-bottom: 0.25rem; border-bottom: 2px solid #e0e0e0; color: #1a1a2e; }
+  h3 { font-size: 0.95rem; margin: 1.25rem 0 0.5rem; color: #333; }
+  p, li { font-size: 0.9rem; }
+  ul { padding-left: 1.5rem; }
+  li { margin-bottom: 0.25rem; }
+  .status { display: inline-block; background: #d4edda; color: #155724; font-size: 0.75rem; padding: 0.15rem 0.5rem; border-radius: 4px; font-weight: 600; margin-left: 0.5rem; }
+  .pending { background: #fff3cd; color: #856404; }
+  table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; font-size: 0.85rem; background: #fff; }
+  th { background: #1a1a2e; color: #fff; padding: 0.5rem 0.65rem; text-align: left; font-weight: 600; }
+  td { padding: 0.45rem 0.65rem; border-bottom: 1px solid #e9ecef; vertical-align: top; }
+  tr:nth-child(even) td { background: #f8f9fa; }
+  .pk { color: #e83e8c; font-weight: 600; }
+  .fk { color: #0d6efd; font-weight: 600; }
+  .gen { color: #28a745; font-weight: 600; }
+  .internal { color: #999; font-style: italic; }
+  code { background: #f1f3f5; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.82rem; }
+  .view-box { background: #fff; border: 1px solid #dee2e6; border-radius: 6px; padding: 1rem; margin: 0.75rem 0; }
+  .view-box h4 { font-size: 0.9rem; margin-bottom: 0.5rem; color: #1a1a2e; }
+  .view-box code { display: block; white-space: pre; font-size: 0.8rem; background: #f8f9fa; padding: 0.75rem; border-radius: 4px; overflow-x: auto; }
+  .note { background: #e7f3ff; border-left: 4px solid #0d6efd; padding: 0.75rem 1rem; margin: 0.75rem 0; font-size: 0.85rem; }
+  .warning { background: #fff3cd; border-left: 4px solid #ffc107; padding: 0.75rem 1rem; margin: 0.75rem 0; font-size: 0.85rem; }
+  .decision-box { background: #f8f9fa; border: 1px solid #ced4da; border-radius: 6px; padding: 1rem; margin: 0.75rem 0; }
+  .decision-box h4 { font-size: 0.9rem; margin-bottom: 0.5rem; }
+  .mono { font-family: 'Courier New', monospace; }
+  .section { margin-bottom: 2rem; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Spec — Modelo de Datos: Estudio Nancy Sol</h1>
+<p class="meta">Versión 1.0 · 2026-06-04 · Docs/specs/2026-06-04-modelo-datos-estudio-nancysol.html</p>
+
+<!--
+====================================================================
+SECCIÓN 1 — DECISIONES CERRADAS
+====================================================================
+-->
+<div class="section">
+<h2>1. Decisiones cerradas</h2>
+
+<div class="decision-box">
+<h4>D1 — Atribución cobro → ganancia para retiros <span class="status">CERRADA</span></h4>
+<p><strong>Opción A (proporcional)</strong>: la ganancia cobrada se calcula como ratio del total cobrado
+sobre el total presupuestado, aplicada a la ganancia total de la obra.</p>
+<p class="mono" style="font-size:0.82rem; margin-top:0.5rem;">
+ganancia_cobrada = (total_cobrado_obra / total_presupuesto_obra) × ganancia_total_obra
+</p>
+<p style="font-size:0.82rem; color:#666; margin-top:0.4rem;">No requiere linkear cobros a ítems individuales. Converge naturalmente cuando se cobra la obra completa.</p>
+</div>
+
+<div class="decision-box">
+<h4>D2 — Rubro en presupuesto_items <span class="status">CERRADA</span></h4>
+<p><strong>Opción A (FK estricta nullable)</strong>: <code>rubro_id</code> FK a <code>rubros</code>, nullable.
+Si no hay proveedor o no matchea, se elige de la lista. Texto libre <strong>no</strong> disponible;
+los ~30 rubros reales del catálogo cubren todos los casos reales.</p>
+</div>
+</div>
+
+<!--
+====================================================================
+SECCIÓN 2 — ESQUEMA DE DATOS
+====================================================================
+-->
+<div class="section">
+<h2>2. Esquema de datos</h2>
+
+<p>Todas las tablas viven en <code>public</code>. RLS habilitado en todas. Grants explícitos (ver §6).</p>
+
+<h3>2.1 settings (singleton)</h3>
+<table>
+  <tr><th>Columna</th><th>Tipo</th><th>Default</th><th>Notas</th></tr>
+  <tr><td class="pk">id</td><td>uuid</td><td>gen_random_uuid()</td><td>Primary key (valor fijo: una sola fila)</td></tr>
+  <tr><td>honorario_default</td><td>numeric</td><td>0.15</td><td>15% default global. Override por obra.</td></tr>
+  <tr><td>target_reparto_nancy</td><td>numeric</td><td>0.50</td><td>Split Nancy para convergencia 50/50.</td></tr>
+  <tr><td>target_reparto_sol</td><td>numeric</td><td>0.50</td><td>Split Sol para convergencia 50/50.</td></tr>
+  <tr><td>moneda_base</td><td>text</td><td>'ARS'</td><td>Moneda base para consolidación. Solo ARS por ahora.</td></tr>
+  <tr><td>created_at</td><td>timestamptz</td><td>now()</td><td></td></tr>
+  <tr><td>updated_at</td><td>timestamptz</td><td>now()</td><td></td></tr>
+</table>
+<p class="note"><strong>Nota:</strong> La app debe validar que siempre exista una y solo una fila en settings. Se puede usar un trigger INSTEAD OF o simplemente inicializar con un seed y no permitir eliminar esa fila.</p>
+
+<h3>2.2 rubros (catálogo)</h3>
+<table>
+  <tr><th>Columna</th><th>Tipo</th><th>Notas</th></tr>
+  <tr><td class="pk">id</td><td>uuid</td><td>Primary key</td></tr>
+  <tr><td>nombre</td><td>text unique not null</td><td>Nombre del rubro (ej. ALBAÑILERIA, MATERIALES)</td></tr>
+  <tr><td>created_at</td><td>timestamptz</td><td></td></tr>
+</table>
+<p>Seed con los ~30 rubros reales extraídos del Excel (ver §7.1).</p>
+
+<h3>2.3 clientes</h3>
+<table>
+  <tr><th>Columna</th><th>Tipo</th><th>Notas</th></tr>
+  <tr><td class="pk">id</td><td>uuid</td><td>Primary key</td></tr>
+  <tr><td>nombre</td><td>text not null</td><td>Nombre completo</td></tr>
+  <tr><td>sobrenombre</td><td>text</td><td>Alias corto</td></tr>
+  <tr><td>telefono</td><td>text</td><td></td></tr>
+  <tr><td>email</td><td>text</td><td></td></tr>
+  <tr><td>created_at</td><td>timestamptz</td><td></td></tr>
+</table>
+
+<h3>2.4 proveedores</h3>
+<table>
+  <tr><th>Columna</th><th>Tipo</th><th>Notas</th></tr>
+  <tr><td class="pk">id</td><td>uuid</td><td>Primary key</td></tr>
+  <tr><td>nombre</td><td>text not null</td><td>Nombre completo o razón social</td></tr>
+  <tr><td>sobrenombre</td><td>text</td><td></td></tr>
+  <tr><td>telefono</td><td>text</td><td></td></tr>
+  <tr><td class="fk">rubro_id</td><td>uuid</td><td>FK → rubros (nullable)</td></tr>
+  <tr><td>email</td><td>text</td><td></td></tr>
+  <tr><td>created_at</td><td>timestamptz</td><td></td></tr>
+</table>
+
+<h3>2.5 obras</h3>
+<table>
+  <tr><th>Columna</th><th>Tipo</th><th>Notas</th></tr>
+  <tr><td class="pk">id</td><td>uuid</td><td>Primary key</td></tr>
+  <tr><td class="fk">cliente_id</td><td>uuid not null</td><td>FK → clientes</td></tr>
+  <tr><td>nombre_direccion</td><td>text not null</td><td>Nombre/dirección de la obra</td></tr>
+  <tr><td>fecha_inicio</td><td>date</td><td></td></tr>
+  <tr><td>estado</td><td>text default 'activa'</td><td>'activa' | 'finalizada' | 'pausada'</td></tr>
+  <tr><td>honorario_override</td><td>numeric null</td><td>Override % honorario. Null = usa settings</td></tr>
+  <tr><td>split_nancy_override</td><td>numeric null</td><td>Override split Nancy. Null = usa settings</td></tr>
+  <tr><td>split_sol_override</td><td>numeric null</td><td>Override split Sol. Null = usa settings</td></tr>
+  <tr><td>tipo_cambio_fallback</td><td>numeric null</td><td>TC ARS/USD por defecto de la obra. Null = sin fallback definido.</td></tr>
+  <tr><td>created_at</td><td>timestamptz</td><td></td></tr>
+</table>
+
+<h3>2.6 presupuesto_items</h3>
+<table>
+  <tr><th>Columna</th><th>Tipo</th><th>Notas</th></tr>
+  <tr><td class="pk">id</td><td>uuid</td><td>Primary key</td></tr>
+  <tr><td class="fk">obra_id</td><td>uuid not null</td><td>FK → obras</td></tr>
+  <tr><td>fecha</td><td>date</td><td>Fecha del ítem</td></tr>
+  <tr><td class="fk">proveedor_id</td><td>uuid null</td><td>FK → proveedores. Nullable (ítem sin proveedor).</td></tr>
+  <tr><td class="fk">rubro_id</td><td>uuid null</td><td>FK → rubros. Nullable. Elegido de la lista.</td></tr>
+  <tr><td>detalle</td><td>text</td><td>Descripción del ítem</td></tr>
+  <tr><td>valor_proveedor</td><td>numeric not null default 0</td><td>Precio de costo del proveedor <span class="internal">[INTERNO]</span></td></tr>
+  <tr><td>moneda_proveedor</td><td>text not null default 'ARS'</td><td>Moneda del costo (ARS o USD)</td></tr>
+  <tr><td>tc_proveedor</td><td>numeric null</td><td>Tipo de cambio del costo. Null = usa fallback de obra.</td></tr>
+  <tr><td>valor_presupuesto</td><td>numeric not null default 0</td><td>Precio de venta sugerido (default D*1.21 en UI)</td></tr>
+  <tr><td>moneda</td><td>text not null default 'ARS'</td><td>Moneda del ítem (ARS o USD)</td></tr>
+  <tr><td>tc_item</td><td>numeric null</td><td>Tipo de cambio del ítem. Null = usa fallback de obra.</td></tr>
+  <tr><td>valor_final</td><td>numeric not null default 0</td><td>Precio final (se pisa a mano tras descuentos)</td></tr>
+  <tr><td>notas</td><td>text <span class="internal">[INTERNO]</span></td><td>Notas internas</td></tr>
+  <tr><td>created_at</td><td>timestamptz</td><td></td></tr>
+</table>
+<p class="note"><strong>Valores por defecto en UI:</strong> al crear un ítem, <code>valor_presupuesto</code> se calcula como <code>valor_proveedor × 1.21</code> (o × TC si son USD). <code>valor_final</code> default = <code>valor_presupuesto</code>. Ambos son editables.</p>
+<p class="warning"><strong>Trigger + CHECK anti-silencio USD:</strong> el TC de un ítem USD debe quedar lockeado al momento de cargarlo. El trigger BEFORE completa el TC desde el fallback de la obra si falta. El CHECK es la red final (dispara solo si fallback también es null).</p>
+<pre style="background:#f8f9fa;padding:0.75rem;font-size:0.82rem;border-radius:4px;overflow-x:auto;">
+-- Trigger que completa el TC desde el fallback de la obra
+create or replace function public.tf_set_tc_from_fallback()
+returns trigger as $$
+begin
+  if NEW.moneda = 'USD' and NEW.tc_item is null then
+    SELECT tipo_cambio_fallback INTO NEW.tc_item
+    FROM obras WHERE id = NEW.obra_id;
+  end if;
+  if NEW.moneda_proveedor = 'USD' and NEW.tc_proveedor is null then
+    SELECT tipo_cambio_fallback INTO NEW.tc_proveedor
+    FROM obras WHERE id = NEW.obra_id;
+  end if;
+  return NEW;
+end;
+$$ language plpgsql;
+
+create trigger tr_set_tc_item
+  before insert or update on public.presupuesto_items
+  for each row execute function public.tf_set_tc_from_fallback();
+
+-- CHECK como red final (solo dispara si fallback también es null)
+alter table public.presupuesto_items add constraint chk_tc_item
+  check (moneda = 'ARS' or tc_item is not null);
+alter table public.presupuesto_items add constraint chk_tc_proveedor
+  check (moneda_proveedor = 'ARS' or tc_proveedor is not null);
+-- movimientos_caja.tipo_cambio es NOT NULL, no requiere check.
+</pre>
+
+<h3>2.7 movimientos_caja</h3>
+<table>
+  <tr><th>Columna</th><th>Tipo</th><th>Notas</th></tr>
+  <tr><td class="pk">id</td><td>uuid</td><td>Primary key</td></tr>
+  <tr><td class="fk">obra_id</td><td>uuid not null</td><td>FK → obras</td></tr>
+  <tr><td>tipo</td><td>text not null</td><td>'cobro_cliente' | 'pago_proveedor' | 'retiro'</td></tr>
+  <tr><td class="fk">proveedor_id</td><td>uuid null</td><td>FK → proveedores. Solo para 'pago_proveedor'.</td></tr>
+  <tr><td>monto</td><td>numeric not null</td><td>Signo: positivo = entrada, negativo = salida. O bien signo por tipo (decidir en implementación).</td></tr>
+  <tr><td>moneda</td><td>text not null default 'ARS'</td><td>Moneda de la transacción (ARS o USD)</td></tr>
+  <tr><td>tipo_cambio</td><td>numeric not null</td><td>TC de ESTA transacción al momento de registrarse</td></tr>
+  <tr><td>medio_pago</td><td>text null</td><td>'efectivo' | 'transferencia'. Solo para cobros/pagos.</td></tr>
+  <tr><td>fecha</td><td>date not null</td><td>Fecha de la operación</td></tr>
+  <tr><td>created_at</td><td>timestamptz</td><td></td></tr>
+</table>
+<p class="note"><strong>Decisión de signo:</strong> <code>monto</code> es <em>siempre positivo</em>; el signo de la operación surge de <code>tipo</code>. En la view <code>v_caja_saldo</code> se aplica el signo según tipo (cobro = +1, pago = -1, retiro = -1). Esto evita ambigüedades en la UI.</p>
+
+<h3>2.8 retiros</h3>
+<table>
+  <tr><th>Columna</th><th>Tipo</th><th>Notas</th></tr>
+  <tr><td class="pk">id</td><td>uuid</td><td>Primary key</td></tr>
+  <tr><td class="fk">obra_id</td><td>uuid not null</td><td>FK → obras</td></tr>
+  <tr><td>fecha</td><td>date not null</td><td></td></tr>
+  <tr><td>monto_nancy</td><td>numeric not null default 0</td><td>Monto retiro Nancy (libre, puede ser ≠ monto_sol)</td></tr>
+  <tr><td>monto_sol</td><td>numeric not null default 0</td><td>Monto retiro Sol (libre, puede ser ≠ monto_nancy)</td></tr>
+  <tr><td>moneda</td><td>text not null default 'ARS'</td><td>Moneda del retiro</td></tr>
+  <tr><td>tipo_cambio</td><td>numeric not null</td><td>TC del retiro</td></tr>
+  <tr><td>created_at</td><td>timestamptz</td><td></td></tr>
+</table>
+</div>
+
+<!--
+====================================================================
+SECCIÓN 3 — VIEWS
+====================================================================
+-->
+<div class="section">
+<h2>3. Views (las "fórmulas" del Excel, recalculadas solas)</h2>
+
+<div class="view-box">
+<h4>3.1 v_presupuesto_items — Ítems con columnas derivadas</h4>
+<code>SELECT
+  pi.*,
+  obra.honorario_override,
+  obra.tipo_cambio_fallback,
+
+  -- TC efectivo: currency-aware. ARS → 1. USD → TC de la transacción,
+  -- o fallback de la obra si null (permite cargar muchos USD sin repetir TC).
+  CASE
+    WHEN pi.moneda = 'ARS' THEN 1
+    ELSE COALESCE(NULLIF(pi.tc_item, 0), obra.tipo_cambio_fallback)
+  END AS tc_item_efectivo,
+
+  CASE
+    WHEN pi.moneda_proveedor = 'ARS' THEN 1
+    ELSE COALESCE(NULLIF(pi.tc_proveedor, 0), obra.tipo_cambio_fallback)
+  END AS tc_proveedor_efectivo,
+
+  -- Montos en ARS (convertidos con TC efectivo, reutilizados entre columnas)
+  (pi.valor_proveedor * CASE
+    WHEN pi.moneda_proveedor = 'ARS' THEN 1
+    ELSE NULLIF(pi.tc_proveedor, 0)
+  END) AS valor_proveedor_ars,
+
+  (pi.valor_presupuesto * CASE
+    WHEN pi.moneda = 'ARS' THEN 1
+    ELSE NULLIF(pi.tc_item, 0)
+  END) AS valor_presupuesto_ars,
+
+  (pi.valor_final * CASE
+    WHEN pi.moneda = 'ARS' THEN 1
+    ELSE NULLIF(pi.tc_item, 0)
+  END) AS valor_final_ars,
+
+  -- Honorario en ARS
+  (pi.valor_final * CASE
+    WHEN pi.moneda = 'ARS' THEN 1
+    ELSE NULLIF(pi.tc_item, 0)
+  END * COALESCE(obra.honorario_override, sett.honorario_default)) AS honorario_ars,
+
+  -- Total en ARS (incluye honorario)
+  (pi.valor_final * CASE
+    WHEN pi.moneda = 'ARS' THEN 1
+    ELSE NULLIF(pi.tc_item, 0)
+  END * (1 + COALESCE(obra.honorario_override, sett.honorario_default))) AS total_ars,
+
+  -- Adicional [INTERNO]: presupuesto - costo, en ARS. Reutiliza columnas ya convertidas.
+  (valor_presupuesto_ars - valor_proveedor_ars) AS adicional_ars,
+
+  -- Ganancia [INTERNO]: total - costo, en ARS. Incluye honorario.
+  -- (total_ars ya incluye honorario = K en el Excel)
+  (total_ars - valor_proveedor_ars) AS ganancia_ars
+
+FROM presupuesto_items pi
+JOIN obras obra ON obra.id = pi.obra_id
+CROSS JOIN settings sett</code>
+<p class="note" style="margin-top:0.5rem;"><strong>TC currency-aware:</strong> si <code>moneda='ARS'</code> se fuerza TC=1 siempre, sin importar el fallback de la obra. Si <code>moneda='USD'</code> y <code>tc_item</code> es null, se usa el fallback de la obra; si el fallback tampoco existe, la UI debe pedir el TC (no se puede convertir sin TC).</p>
+</div>
+
+<div class="view-box">
+<h4>3.2 v_obra_totales — Totales por obra</h4>
+<code>SELECT
+  obra_id,
+  COUNT(*) AS total_items,
+
+  -- Todos los montos en ARS (las columnas _ars ya están convertidas)
+  SUM(valor_proveedor_ars)  AS total_costo_ars,
+  SUM(valor_presupuesto_ars)  AS total_presupuesto_ars,
+  SUM(valor_final_ars)      AS total_final_ars,
+  SUM(ganancia_ars)         AS total_ganancia_ars,
+  SUM(honorario_ars)        AS total_honorarios_ars,
+  SUM(adicional_ars)        AS total_adicional_ars,
+  SUM(total_ars)            AS total_general_ars,
+
+  -- Total USD puro (ítems en USD, sin conversión)
+  SUM(CASE WHEN pi.moneda = 'USD' THEN pi.valor_final ELSE 0 END) AS total_final_usd,
+  SUM(CASE WHEN pi.moneda = 'USD' THEN pi.valor_proveedor ELSE 0 END) AS total_costo_usd
+FROM v_presupuesto_items pi
+GROUP BY obra_id</code>
+</div>
+
+<div class="view-box">
+<h4>3.3 v_caja_saldo — Running balance por obra (cobros + pagos + retiros)</h4>
+<code>-- UNION: movimientos de caja y retiros tienen esquemas distintos.
+-- La tabla movimientos_caja cubre cobros y pagos.
+-- La tabla retiros es separada y tiene monto_nancy/monto_sol.
+-- El running balance es la suma de los tres flujos en ARS.
+WITH caja_union AS (
+  -- Cobros: monto positivo
+  SELECT
+    obra_id,
+    id,
+    fecha,
+    'cobro_cliente' AS tipo,
+     mc.monto * mc.tipo_cambio AS monto_ars
+  FROM movimientos_caja mc
+  WHERE mc.tipo = 'cobro_cliente'
+
+  UNION ALL
+
+  -- Pagos: monto negativo
+  SELECT
+    obra_id,
+    id,
+    fecha,
+    'pago_proveedor' AS tipo,
+   -mc.monto * mc.tipo_cambio AS monto_ars
+  FROM movimientos_caja mc
+  WHERE mc.tipo = 'pago_proveedor'
+
+  UNION ALL
+
+  -- Retiros: suma de ambos montos (Nancy + Sol), negativos
+  SELECT
+    r.obra_id,
+    r.id,
+    r.fecha,
+    'retiro' AS tipo,
+   -(r.monto_nancy + r.monto_sol) * r.tipo_cambio AS monto_ars
+  FROM retiros r
+)
+SELECT
+  obra_id,
+  id,
+  tipo,
+  monto_ars,
+  SUM(monto_ars) OVER (
+    PARTITION BY obra_id
+    ORDER BY fecha, created_at
+    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+  ) AS saldo_acumulado_ars
+FROM caja_union
+ORDER BY obra_id, fecha</code>
+<p class="note" style="margin-top:0.5rem;"><strong>Importante:</strong> <code>fecha</code> se usa para ordenar; <code>created_at</code> desempata dentro del mismo día. El saldo acumulado en ARS es lo que reemplaza la columna "Saldo en Caja" del Excel. <strong>No</strong> es el saldo disponible para retiros (ese viene de <code>v_ganancia_cobrada</code> vía <code>v_retiros_convergencia</code>).</p>
+</div>
+
+<div class="view-box">
+<h4>3.4 v_pagos_por_proveedor — Agregación por proveedor (reemplaza el pivot de 86 columnas)</h4>
+<code>SELECT
+  obra_id,
+  proveedor_id,
+  p.nombre AS nombre_proveedor,
+  SUM(mc.monto * mc.tipo_cambio) AS total_pagado_ars
+FROM movimientos_caja mc
+JOIN proveedores p ON p.id = mc.proveedor_id
+WHERE mc.tipo = 'pago_proveedor'
+GROUP BY obra_id, proveedor_id, p.nombre
+ORDER BY obra_id, total_pagado_ars DESC</code>
+</div>
+
+<div class="view-box">
+<h4>3.5 v_saldos_obra — Los labels del Excel</h4>
+<code>SELECT
+  obra_id,
+
+  -- Saldo a cobrar del cliente (total presupuesto - cobros recibidos)
+  (SELECT SUM(total_general_ars) FROM v_obra_totales WHERE obra_id = o.id) -
+  (SELECT SUM(monto_ars) FROM v_caja_saldo    WHERE obra_id = o.id AND tipo = 'cobro_cliente')
+  AS saldo_a_cobrar_ars,
+
+  -- Deuda a proveedores (suma de todos los pagos a proveedores)
+  (SELECT SUM(monto_ars) FROM v_caja_saldo WHERE obra_id = o.id AND tipo = 'pago_proveedor')
+  AS deuda_proveedores_ars,
+
+  -- Pagado al cliente (total cobros)
+  (SELECT SUM(monto_ars) FROM v_caja_saldo WHERE obra_id = o.id AND tipo = 'cobro_cliente')
+  AS total_cobrado_ars,
+
+  -- Saldo en caja (cobros - pagos - retiros)
+  (SELECT saldo_acumulado_ars FROM v_caja_saldo WHERE obra_id = o.id ORDER BY fecha DESC LIMIT 1)
+  AS saldo_caja_ars
+
+FROM obras o</code>
+</div>
+
+<div class="view-box">
+<h4>3.6 v_ganancia_cobrada — Ganancia atribuible a cobros efectivos (base caja) <span class="status">USA D1</span></h4>
+<code>-- D1: ganancia cobrada = (total_cobrado / total_facturado) × ganancia_total
+-- Denominador = total_general_ars (suma de K = total, no de H = presupuesto).
+-- total_cobrado_ars viene de movimientos_caja, no de v_obra_totales.
+SELECT
+  obra_id,
+
+  (SELECT SUM(monto_ars) FROM v_caja_saldo WHERE obra_id = ot.obra_id AND tipo = 'cobro_cliente')
+    AS total_cobrado_ars,
+
+  ot.total_general_ars    AS total_facturado_ars,   -- denominador: suma de K (total), no de H
+  ot.total_ganancia_ars,
+
+  CASE WHEN ot.total_general_ars > 0
+    THEN (
+      (SELECT SUM(monto_ars) FROM v_caja_saldo WHERE obra_id = ot.obra_id AND tipo = 'cobro_cliente')
+      / ot.total_general_ars
+    ) * ot.total_ganancia_ars
+    ELSE 0
+  END AS ganancia_cobrada_ars
+
+FROM v_obra_totales ot</code>
+<p class="note" style="margin-top:0.5rem;"><strong>Denominador = total_facturado_ars (K = total):</strong> el ratio usa la suma de los <em>totales</em> facturados (honorario incluido), no los presupuestos brutos. Así cuando se cobra el 100% de la obra, ganancia_cobrada converge exactamente a total_ganancia_ars. Si el cliente paga solo $600k de $1M facturado (con $150k de honorario), cobra proporcionalmente $90k de ganancia.</p>
+</div>
+
+<div class="view-box">
+<h4>3.7 v_retiros_convergencia — Convergencia 50/50 y disponible para retirar</h4>
+<code>SELECT
+  r.obra_id,
+
+  -- Retiros acumulados por socia (ya en ARS)
+  SUM(r.monto_nancy * r.tipo_cambio) AS total_retiros_nancy_ars,
+  SUM(r.monto_sol   * r.tipo_cambio) AS total_retiros_sol_ars,
+  SUM((r.monto_nancy + r.monto_sol) * r.tipo_cambio) AS total_retiros_ars,
+
+  -- Target: 50/50 de la ganancia cobrada
+  gc.ganancia_cobrada_ars,
+  (gc.ganancia_cobrada_ars * COALESCE(o.split_nancy_override, s.target_reparto_nancy)) AS target_nancy_ars,
+  (gc.ganancia_cobrada_ars * COALESCE(o.split_sol_override,   s.target_reparto_sol))   AS target_sol_ars,
+
+  -- Diferencia vs target (positivo = a favor, negativo = excedente)
+  (SUM(r.monto_nancy * r.tipo_cambio) -
+   (gc.ganancia_cobrada_ars * COALESCE(o.split_nancy_override, s.target_reparto_nancy))) AS diferencia_nancy_ars,
+
+  (SUM(r.monto_sol * r.tipo_cambio) -
+   (gc.ganancia_cobrada_ars * COALESCE(o.split_sol_override, s.target_reparto_sol))) AS diferencia_sol_ars,
+
+  -- Disponible para retirar (ganancia cobrada - retiros hechos)
+  (gc.ganancia_cobrada_ars - SUM((r.monto_nancy + r.monto_sol) * r.tipo_cambio)) AS disponible_para_retirar_ars
+
+FROM retiros r
+JOIN obras o      ON o.id = r.obra_id
+JOIN settings s   ON true
+JOIN v_ganancia_cobrada gc ON gc.obra_id = r.obra_id
+GROUP BY r.obra_id, o.split_nancy_override, o.split_sol_override, s.target_reparto_nancy, s.target_reparto_sol, gc.ganancia_cobrada_ars</code>
+<p class="warning" style="margin-top:0.5rem;"><strong>Warning, no bloqueo:</strong> si <code>disponible_para_retirar_ars</code> es negativo, se muestra un warning en la UI pero se permite registrar el retiro igual. La regla de negocio no bloquea; solo informa.</p>
+</div>
+</div>
+
+<!--
+====================================================================
+SECCIÓN 4 — BIMONEDA
+====================================================================
+-->
+<div class="section">
+<h2>4. Bimoneda — Conversiones y reglas</h2>
+
+<h3>4.1 Almacenamiento</h3>
+<p>Todo monto se guarda <strong>en su moneda nativa</strong> (ARS o USD) + el TC correspondiente a esa transacción:</p>
+<ul>
+  <li><code>presupuesto_items.valor_proveedor</code> + <code>tc_proveedor</code></li>
+  <li><code>presupuesto_items.valor_presupuesto</code> + <code>tc_item</code></li>
+  <li><code>presupuesto_items.valor_final</code> + <code>tc_item</code></li>
+  <li><code>movimientos_caja.monto</code> + <code>tipo_cambio</code></li>
+  <li><code>retiros.monto_nancy/sol</code> + <code>tipo_cambio</code></li>
+</ul>
+
+<h3>4.2 Conversión a ARS</h3>
+<p>Para consolidar en ARS, <strong>siempre</strong> se usa el TC de la transacción, nunca un TC genérico:</p>
+<code>monto_ars = monto_nativo × tipo_cambio_de_esa_transaccion</code>
+<p>Si <code>tc_*</code> es null, se usa <code>obras.tipo_cambio_fallback</code>. Si el fallback tampoco está definido, es un error (la UI debe pedir que se ingrese el TC).</p>
+
+<h3>4.3 Fallback por obra y lock-in de TC</h3>
+<p>Cada obra puede tener un <code>tipo_cambio_fallback</code> (ej. 1200 ARS/USD). El trigger <code>tf_set_tc_from_fallback</code> lo copia al ítem en el momento de la inserción si el TC está nulo. Una vez grabado, el TC queda <strong>lockeado en el ítem</strong> (no cambia si después se modifica el fallback de la obra). Esto es correcto: el TC debe ser el de la fecha del ítem, no un valor futuro.</p>
+<p>Flujo completo:</p>
+<ul>
+  <li>USD + tc_item null + fallback existe → trigger completa tc_item → pasa CHECK → TC lockeado.</li>
+  <li>USD + tc_item null + fallback null → trigger no llena nada → CHECK rechaza (error en BD).</li>
+  <li>ARS → tc forzado a 1, sin consultar fallback nunca.</li>
+</ul>
+
+<h3>4.4 Suma cross-moneda</h3>
+<p class="warning"><strong>Regla anti-bug:</strong> nunca sumar montos en distintas monedas sin convertir primero a ARS con el TC de cada transacción. Las views de agregación (<code>v_obra_totales</code>, <code>v_caja_saldo</code>) siempre convierten antes de sumar.</p>
+
+<h3>4.5 Toggle USD</h3>
+<p>Como se guardan montos nativos en ambas monedas, un toggle USD en la UI es trivial: se muestran los montos tal cual están, sin conversión, usando la columna <code>moneda</code> como filtro.</p>
+</div>
+
+<!--
+====================================================================
+SECCIÓN 5 — MAPA EXCEL → DB
+====================================================================
+-->
+<div class="section">
+<h2>5. Mapeo Excel → Base de datos</h2>
+
+<table>
+  <tr>
+    <th>Excel (hoja / columna)</th>
+    <th>Fórmula / contenido</th>
+    <th>Destino DB</th>
+    <th>Notas</th>
+  </tr>
+  <tr>
+    <td>Data / clientes</td>
+    <td>Nombre, Sobrenombre, Tel, Mail, CUIT</td>
+    <td><code>clientes</code></td>
+    <td></td>
+  </tr>
+  <tr>
+    <td>Data / proveedores</td>
+    <td>Nombre, Sobrenombre, Tel, Rubro, CUIT</td>
+    <td><code>proveedores</code> + FK <code>rubro_id</code></td>
+    <td>Rubro → FK a rubros (catálogo)</td>
+  </tr>
+  <tr>
+    <td>Presupuesto / A (control)</td>
+    <td>=K-D-C → siempre 0</td>
+    <td><span class="internal">Desaparece</span></td>
+    <td>Es tautología (K−D−(K−D)=0). No se modela.</td>
+  </tr>
+  <tr>
+    <td>Presupuesto / B (fecha)</td>
+    <td>Serial Excel</td>
+    <td><code>presupuesto_items.fecha</code></td>
+    <td>Convertir de serial Excel a date</td>
+  </tr>
+  <tr>
+    <td>Presupuesto / C (ganancia)</td>
+    <td>=K−D</td>
+    <td><code>v_presupuesto_items.ganancia</code> <span class="internal">[VIEW]</span></td>
+    <td>Generated: valor_final − valor_proveedor</td>
+  </tr>
+  <tr>
+    <td>Presupuesto / D (valor_proveedor)</td>
+    <td>A mano</td>
+    <td><code>presupuesto_items.valor_proveedor</code> <span class="internal">[INTERNO]</span></td>
+    <td></td>
+  </tr>
+  <tr>
+    <td>Presupuesto / E (proveedor)</td>
+    <td>=Data!A{n}</td>
+    <td><code>presupuesto_items.proveedor_id</code> <span class="internal">[INTERNO]</span></td>
+    <td>FK a proveedores</td>
+  </tr>
+  <tr>
+    <td>Presupuesto / F (item/rubro)</td>
+    <td>=Data!D{n} o texto libre</td>
+    <td><code>presupuesto_items.rubro_id</code></td>
+    <td>FK a rubros (D2 = FK estricta)</td>
+  </tr>
+  <tr>
+    <td>Presupuesto / G (detalle)</td>
+    <td>Texto libre</td>
+    <td><code>presupuesto_items.detalle</code></td>
+    <td></td>
+  </tr>
+  <tr>
+    <td>Presupuesto / H (valor_presupuesto)</td>
+    <td>=D×1.21 (default, se pisa a mano)</td>
+    <td><code>presupuesto_items.valor_presupuesto</code></td>
+    <td>Default calculado en UI, editable</td>
+  </tr>
+  <tr>
+    <td>Presupuesto / I (valor_final)</td>
+    <td>=H (default, se pisa a mano)</td>
+    <td><code>presupuesto_items.valor_final</code></td>
+    <td>Editable tras descuento, etc.</td>
+  </tr>
+  <tr>
+    <td>Presupuesto / J (honorario)</td>
+    <td>=I×$J$5 (I×0.15)</td>
+    <td><code>v_presupuesto_items.honorario</code> <span class="internal">[VIEW]</span></td>
+    <td>Generated: valor_final × honorario_efectivo</td>
+  </tr>
+  <tr>
+    <td>Presupuesto / K (total)</td>
+    <td>=I+J</td>
+    <td><code>v_presupuesto_items.total</code> <span class="internal">[VIEW]</span></td>
+    <td>Generated: valor_final + honorario</td>
+  </tr>
+  <tr>
+    <td>Presupuesto / L (notas)</td>
+    <td>Texto</td>
+    <td><code>presupuesto_items.notas</code> <span class="internal">[INTERNO]</span></td>
+    <td></td>
+  </tr>
+  <tr>
+    <td>Presupuesto / M (adicional)</td>
+    <td>=H−D</td>
+    <td><code>v_presupuesto_items.adicional</code> <span class="internal">[VIEW]</span></td>
+    <td>Generated: valor_presupuesto − valor_proveedor [INTERNO]</td>
+  </tr>
+  <tr>
+    <td>Caja / Cobros</td>
+    <td>=Presupuesto!K</td>
+    <td><code>movimientos_caja</code> tipo='cobro_cliente'</td>
+    <td></td>
+  </tr>
+  <tr>
+    <td>Caja / Pagos</td>
+    <td>=−Presupuesto!D</td>
+    <td><code>movimientos_caja</code> tipo='pago_proveedor'</td>
+    <td></td>
+  </tr>
+  <tr>
+    <td>Caja / Retiros NANCY, SOL</td>
+    <td>Montos libres</td>
+    <td><code>retiros</code></td>
+    <td></td>
+  </tr>
+  <tr>
+    <td>Caja / Saldo Honorarios</td>
+    <td>View</td>
+    <td><code>v_retiros_convergencia.disponible_para_retirar</code></td>
+    <td></td>
+  </tr>
+  <tr>
+    <td>Caja / Saldo en Caja</td>
+    <td>View</td>
+    <td><code>v_caja_saldo.saldo_acumulado_ars</code></td>
+    <td></td>
+  </tr>
+  <tr>
+    <td>Caja / Matriz 86 cols</td>
+    <td>Pivot/manual</td>
+    <td><code>v_pagos_por_proveedor</code></td>
+    <td>Reemplaza la matriz rota #REF!</td>
+  </tr>
+</table>
+</div>
+
+<!--
+====================================================================
+SECCIÓN 6 — GRANTS Y RLS
+====================================================================
+-->
+<div class="section">
+<h2>6. Grants y RLS</h2>
+
+<p>Todas las tablas en <code>public</code> incluyen grants explícitos. RLS habilitado en todas.</p>
+
+<pre style="background:#f8f9fa; padding:1rem; font-size:0.82rem; border-radius:4px; overflow-x:auto;">
+-- Ejemplo para cada tabla:
+alter table public.mi_tabla enable row level security;
+
+-- Policy: las 2 socias comparten 1 login (authenticated = admin compartido)
+create policy "admin_total" on public.mi_tabla
+  for all to authenticated using (true);
+
+-- Grants Data API (para supabase-js / PostgREST)
+grant select on public.mi_tabla to authenticated;
+grant select, insert, update, delete on public.mi_tabla to authenticated;
+grant select, insert, update, delete on public.mi_tabla to service_role;
+</pre>
+
+<p class="note"><strong>Por qué no anon:</strong> la app es 100% interna con auth. No hay contenido público. El export se genera tras login, en el servidor o componente print-only server-side.</p>
+</div>
+
+<!--
+====================================================================
+SECCIÓN 7 — PLAN DE MIGRACIONES
+====================================================================
+-->
+<div class="section">
+<h2>7. Plan de migraciones</h2>
+
+<ol style="padding-left:1.5rem;">
+  <li style="margin-bottom:0.5rem;">
+    <strong>001_settings.sql</strong> — Tabla <code>settings</code> + fila inicial con defaults.<br>
+    <code>honorario_default=0.15, target_reparto_nancy=0.50, target_reparto_sol=0.50, moneda_base='ARS'</code>
+  </li>
+  <li style="margin-bottom:0.5rem;">
+    <strong>002_rubros.sql</strong> — Tabla <code>rubros</code> + seed con los ~30 rubros reales.<br>
+    ALBAÑILERIA, VOLQUETE, MATERIALES, ELECTRODOMESTICOS, ART. SANIT, REVESTIMIENTOS,
+    INST. AA, CARP. MADERA, CARP. ALUMINIO, CARP. PVC, INST.SANIT Y GAS, INST. ELECTRICA,
+    ART. ILUMINACION, MARMOLERIA, VARIOS, FLETES, PAISAJISMO, DURLOCK, PULIDO E HIDRO,
+    YESERIA, VIDRIOS, IMPERM. TAPICERIA, PINTURA, MOBILIARIO, HERRERIA, FLETE - EMBALAJE,
+    EMBALAJE, CALEFACCION, REP. CORT ENROLLAR.
+  </li>
+  <li style="margin-bottom:0.5rem;">
+    <strong>003_clientes.sql</strong> — Tabla <code>clientes</code>.
+  </li>
+  <li style="margin-bottom:0.5rem;">
+    <strong>004_proveedores.sql</strong> — Tabla <code>proveedores</code>.
+  </li>
+  <li style="margin-bottom:0.5rem;">
+    <strong>005_obras.sql</strong> — Tabla <code>obras</code>.
+  </li>
+  <li style="margin-bottom:0.5rem;">
+    <strong>006_presupuesto_items.sql</strong> — Tabla <code>presupuesto_items</code>.
+  </li>
+  <li style="margin-bottom:0.5rem;">
+    <strong>007_movimientos_caja.sql</strong> — Tabla <code>movimientos_caja</code>.
+  </li>
+  <li style="margin-bottom:0.5rem;">
+    <strong>008_retiros.sql</strong> — Tabla <code>retiros</code>.
+  </li>
+  <li style="margin-bottom:0.5rem;">
+    <strong>009_views.sql</strong> — Todas las views (<code>v_presupuesto_items</code>, <code>v_obra_totales</code>,
+    <code>v_caja_saldo</code>, <code>v_pagos_por_proveedor</code>, <code>v_saldos_obra</code>,
+    <code>v_ganancia_cobrada</code>, <code>v_retiros_convergencia</code>).
+  </li>
+  <li style="margin-bottom:0.5rem;">
+    <strong>010_seed_demo.sql</strong> — Obra mockup <strong>"Ramsay 1945"</strong>: cliente "Eli",
+    proveedores por rubro, 1 obra con varios ítems, movimientos de caja y retiros de ejemplo.
+    <strong>Sin datos confidenciales reales.</strong>
+  </li>
+</ol>
+
+<p class="warning">El proyecto Supabase <strong>no está en el mapa de CLAUDE.md</strong>. Antes de aplicar migraciones a producción, confirmar qué org/proyecto usar. (Hay 10 MCP servers de Supabase en el sistema; este estudio no está entre ellos.)</p>
+</div>
+
+<!--
+====================================================================
+SECCIÓN 8 — RESTRICCIONES NO NEGOCIABLES
+====================================================================
+-->
+<div class="section">
+<h2>8. Restricciones no negociables</h2>
+<ul>
+  <li>Cero refs por posición: todo FK, fórmulas = views, nunca copiadas a mano.</li>
+  <li>UX para no técnicas: simple, sin jerga, imposible romper un cálculo desde la UI.</li>
+  <li>Reglas de negocio en settings + override por obra. Nada hardcodeado.</li>
+  <li>Auth admin compartido (1 login para las 2 socias). Sin rol cliente.</li>
+  <li>Multi-obra desde día 1.</li>
+  <li>Export F–K: campos [INTERNO] nunca se filtran, ni en metadata.</li>
+  <li>Nunca sumar cross-moneda sin convertir vía TC de la transacción.</li>
+  <li>Stack: Nuxt 4 + Vue 3 Composition API <code>&lt;script setup&gt;</code> JS (no TS) + Tailwind + Supabase + Vercel.</li>
+  <li>SSR-safe (<code>onMounted</code> libs cliente, <code>ClientOnly</code> donde aplique).</li>
+  <li>Comentarios en español. Orden Tailwind del proyecto.</li>
+</ul>
+</div>
+
+<!--
+====================================================================
+SECCIÓN 9 — PRÓXIMOS PASOS
+====================================================================
+-->
+<div class="section">
+<h2>9. Próximos pasos</h2>
+<ol style="padding-left:1.5rem;">
+  <li style="margin-bottom:0.5rem;"><strong>CHECKPOINT:</strong> Aprobación de este spec. Este es el único punto de parada antes de codear.</li>
+  <li style="margin-bottom:0.5rem;"><strong>Migraciones:</strong> Aplicar 001–010 a Supabase (previa confirmación del proyecto).</li>
+  <li style="margin-bottom:0.5rem;"><strong>Scaffold Nuxt:</strong> <code>npx nuxi init</code> + Tailwind + supabase-js. Auth con Supabase Auth.</li>
+  <li style="margin-bottom:0.5rem;"><strong>ABM clientes/proveedores/obras</strong> con lista y selector de obra activa.</li>
+  <li style="margin-bottom:0.5rem;"><strong>Presupuesto por obra:</strong> tabla editable de ítems. Columnas derivadas de <code>v_presupuesto_items</code> read-only.</li>
+  <li style="margin-bottom:0.5rem;"><strong>Caja por obra:</strong> cobros, pagos, retiros con running balance.</li>
+  <li style="margin-bottom:0.5rem;"><strong>Export presupuesto:</strong> solo columnas F–K + encabezado, server-side o print-only.</li>
+</ol>
+</div>
+
+</div>
+</body>
+</html>

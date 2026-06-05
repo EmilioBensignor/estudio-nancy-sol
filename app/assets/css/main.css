@@ -1,0 +1,571 @@
+/* =========================================
+   Estudio Nancy Sol — Design System
+   "El Registro": precisión de cuaderno de
+   arquitectura. Crema + ink + terracota.
+   Fuente única de verdad: estilos compartidos.
+   ========================================= */
+
+:root {
+  /* Superficies */
+  --bg: #FAFAF8;            /* crema base de la app */
+  --surface: #FFFFFF;       /* tarjetas, tablas, inputs */
+  --surface-raised: #F5F4F0;/* áreas elevadas, headers de tabla */
+
+  /* Bordes */
+  --border: #E5E2DA;
+  --border-subtle: #EEECE6;
+
+  /* Texto */
+  --ink: #1C1B19;           /* texto principal, números */
+  --ink-muted: #6B6860;     /* labels secundarios, metadata */
+  --ink-faint: #A8A59D;     /* placeholders, deshabilitado */
+
+  /* Terracota (voz activa) */
+  --accent: #C45C26;
+  --accent-hover: #A84B1E;
+  --accent-subtle: #FBF0EB;
+  --accent-ring: rgba(196, 92, 38, 0.12);
+
+  /* Semánticos */
+  --positive: #2D7D46;
+  --positive-bg: #EDFAF2;
+  --negative: #C4281E;
+  --negative-bg: #FEF0EE;
+  --warning: #92640A;
+  --warning-bg: #FEF9EC;
+
+  /* Radios */
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+
+  /* Elevación (solo hover/efímero) */
+  --shadow-sm: 0 1px 2px rgba(28, 27, 25, 0.06);
+  --shadow: 0 4px 16px rgba(28, 27, 25, 0.08);
+
+  /* Tipografía */
+  --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'DM Mono', 'SF Mono', 'Fira Code', ui-monospace, monospace;
+
+  /* Curva ease-out-quint */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* =========================================
+   Base
+   ========================================= */
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--ink);
+  line-height: 1.55;
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, p { margin: 0; }
+
+::selection { background: var(--accent-subtle); color: var(--accent-hover); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* =========================================
+   Shell de página — ancho único en TODA la app
+   ========================================= */
+.shell {
+  min-height: 100dvh;
+  max-width: 1250px;
+  margin: 0 auto;
+  padding: 32px 32px 72px;
+}
+
+/* =========================================
+   Page header — estructura única:
+   back arriba, luego fila título + acciones.
+   Lo usan listas, detalle y formularios por igual.
+   ========================================= */
+.page-header {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: 24px;
+  margin-bottom: 28px;
+  border-bottom: 1px solid var(--border);
+}
+.page-header--plain { border-bottom: none; padding-bottom: 0; margin-bottom: 24px; }
+
+.page-header__row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+}
+.page-header__titles { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.page-header__actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+
+.title {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  color: var(--ink);
+  line-height: 1.15;
+}
+
+.subtitle {
+  font-size: 16px;
+  color: var(--ink-muted);
+}
+
+/* Volver */
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+  text-decoration: none;
+  transition: color 150ms var(--ease-out);
+}
+.back:hover { color: var(--accent); }
+.back svg { transition: transform 150ms var(--ease-out); }
+.back:hover svg { transform: translateX(-2px); }
+
+/* Meta de obra (cliente · estado) */
+.obra-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  color: var(--ink-muted);
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  flex-shrink: 0;
+}
+.dot--activa { background: var(--positive); }
+
+/* =========================================
+   Eyebrow / section label
+   ========================================= */
+.eyebrow {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+.section-head__title { display: flex; align-items: baseline; gap: 12px; }
+.section-head .count {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  color: var(--ink-faint);
+}
+
+/* =========================================
+   Botones
+   ========================================= */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 42px;
+  padding: 0 18px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: background 150ms var(--ease-out), border-color 150ms var(--ease-out),
+              color 150ms var(--ease-out), transform 80ms var(--ease-out);
+}
+.btn:active { transform: scale(0.98); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-ring); }
+.btn--block { width: 100%; }
+
+.btn--primary { background: var(--accent); color: #fff; }
+.btn--primary:hover:not(:disabled) { background: var(--accent-hover); }
+
+.btn--secondary {
+  background: transparent;
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.btn--secondary:hover:not(:disabled) {
+  background: var(--accent-subtle);
+  border-color: var(--accent-hover);
+  color: var(--accent-hover);
+}
+
+.btn--ghost {
+  background: transparent;
+  color: var(--ink-muted);
+  border-color: var(--border);
+}
+.btn--ghost:hover:not(:disabled) {
+  background: var(--surface-raised);
+  border-color: var(--ink-faint);
+  color: var(--ink);
+}
+
+/* =========================================
+   Card / Panel
+   ========================================= */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.panel--accent { border-color: var(--accent); }
+
+.panel__head {
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.panel__body { padding: 18px; }
+
+/* =========================================
+   Formularios
+   ========================================= */
+.field-group { display: flex; flex-direction: column; gap: 8px; }
+
+.label {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+}
+
+.field {
+  height: 44px;
+  padding: 0 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 16px;
+  transition: border-color 150ms var(--ease-out), box-shadow 150ms var(--ease-out);
+}
+.field:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+.field::placeholder { color: var(--ink-faint); }
+
+select.field { appearance: none; cursor: pointer; padding-right: 34px;
+  background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236B6860' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 13px center;
+}
+.field--num { font-family: var(--font-mono); text-align: right; }
+
+.hint { font-size: 14px; color: var(--ink-faint); }
+
+/* Validación: campo con error + mensaje */
+.field--error { border-color: var(--negative); }
+.field--error:focus { border-color: var(--negative); box-shadow: 0 0 0 3px var(--negative-bg); }
+.field-error {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--negative);
+}
+.field-error svg { flex-shrink: 0; }
+
+.divider { height: 1px; background: var(--border-subtle); }
+
+/* =========================================
+   Callout
+   ========================================= */
+.callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 14px 16px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 15px;
+  color: var(--ink-muted);
+  line-height: 1.55;
+}
+.callout svg { flex-shrink: 0; margin-top: 1px; color: var(--ink-faint); }
+
+/* =========================================
+   Estado badge
+   ========================================= */
+.estado {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 4px 10px;
+  border-radius: 99px;
+  background: var(--surface-raised);
+  color: var(--ink-muted);
+}
+.estado--activa { background: var(--positive-bg); color: var(--positive); }
+.estado--finalizada { background: var(--surface-raised); color: var(--ink-faint); }
+
+/* =========================================
+   Mensajes de estado (cargando / vacío / error)
+   ========================================= */
+.estado-msg {
+  padding: 40px 4px;
+  text-align: center;
+  font-size: 16px;
+  color: var(--ink-muted);
+}
+.estado-msg--error { color: var(--negative); }
+
+/* =========================================
+   Badge de tipo de movimiento
+   ========================================= */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 4px 11px;
+  border-radius: 99px;
+}
+.badge--cobro  { background: var(--positive-bg); color: var(--positive); }
+.badge--pago   { background: var(--negative-bg); color: var(--negative); }
+.badge--retiro { background: var(--warning-bg);  color: var(--warning); }
+
+/* =========================================
+   Montos (mono)
+   ========================================= */
+.monto {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.monto--pos { color: var(--positive); }
+.monto--neg { color: var(--negative); }
+.monto--accent { color: var(--accent); }
+.monto--faint { color: var(--ink-faint); }
+
+/* =========================================
+   KPI strip
+   ========================================= */
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.kpi {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 15px 18px;
+}
+.kpi__label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+  margin-bottom: 8px;
+}
+.kpi__value {
+  display: block;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+  color: var(--ink);
+}
+.kpi__value--pos { color: var(--positive); }
+.kpi__value--neg { color: var(--negative); }
+.kpi__value--accent { color: var(--accent); }
+
+/* =========================================
+   Tabla
+   ========================================= */
+.table { width: 100%; border-collapse: collapse; font-size: 16px; }
+
+.table th {
+  padding: 13px 18px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border);
+}
+.table th.num, .table td.num { text-align: right; }
+
+.table td {
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+.table tbody tr:last-child td { border-bottom: none; }
+.table tbody tr { transition: background 120ms var(--ease-out); }
+.table tbody tr:hover td { background: rgba(28, 27, 25, 0.018); }
+
+.cell-date {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+.cell-saldo { font-weight: 500; color: var(--ink); }
+
+.table-empty {
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--ink-muted);
+  font-size: 16px;
+}
+
+/* =========================================
+   Convergencia / progreso
+   ========================================= */
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+.stat-row + .stat-row { border-top: 1px solid var(--border-subtle); }
+.stat-row__label { font-size: 16px; color: var(--ink-muted); }
+
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 16px 0;
+}
+.progress + .progress { border-top: 1px solid var(--border-subtle); }
+.progress__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.progress__name {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink);
+}
+.progress__val {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  color: var(--ink-muted);
+}
+.progress__track {
+  height: 7px;
+  background: var(--border);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.progress__fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 600ms var(--ease-out);
+}
+.progress__fill--nancy { background: var(--ink); }
+.progress__fill--sol { background: var(--accent); }
+
+/* =========================================
+   Empty state
+   ========================================= */
+.empty {
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 48px 24px;
+  text-align: center;
+}
+.empty h3 { font-size: 18px; font-weight: 600; color: var(--ink); margin-bottom: 6px; }
+.empty p { font-size: 16px; color: var(--ink-muted); max-width: 340px; margin: 0 auto; }
+
+/* =========================================
+   Skeleton
+   ========================================= */
+@keyframes shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, var(--border-subtle) 25%, var(--surface-raised) 50%, var(--border-subtle) 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s infinite linear;
+  border-radius: var(--radius-sm);
+}
+
+/* =========================================
+   Impresión: el membrete de la app no sale en el PDF del cliente
+   ========================================= */
+@media print {
+  /* margin: 0 en @page hace que el navegador NO imprima sus headers/footers
+     (fecha, hora, URL). El margen real del documento lo da el padding interno del doc. */
+  @page { margin: 0; }
+
+  /* Ocultar la app entera; solo el documento del presupuesto sale en el PDF */
+  .masthead, .nav { display: none !important; }
+  body { background: #fff !important; }
+
+  /* El detalle de obra renderiza un .solo-print con el documento.
+     En pantalla está oculto; al imprimir se oculta el resto del shell y se muestra el doc. */
+  .shell > :not(.solo-print) { display: none !important; }
+  .solo-print { display: block !important; }
+  .shell { max-width: none !important; padding: 0 !important; margin: 0 !important; }
+}
