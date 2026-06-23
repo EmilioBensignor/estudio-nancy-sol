@@ -237,6 +237,42 @@ h1, h2, h3, p { margin: 0; }
   color: var(--ink);
 }
 
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  color: var(--ink-faint);
+  text-decoration: none;
+  transition: background 150ms var(--ease-out), color 150ms var(--ease-out);
+}
+.btn-icon:hover { background: var(--surface-raised); color: var(--accent); }
+
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.btn--danger { background: var(--negative); color: #fff; }
+.btn--danger:hover:not(:disabled) { background: #A31F17; }
+
+.btn--danger-ghost {
+  background: transparent;
+  color: var(--negative);
+  border-color: var(--border);
+}
+.btn--danger-ghost:hover:not(:disabled) {
+  background: var(--negative-bg);
+  border-color: var(--negative);
+}
+
 /* =========================================
    Card / Panel
    ========================================= */

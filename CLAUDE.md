@@ -10,7 +10,12 @@ reemplaza un Excel de gestión de obras. Ver `OBJETIVOS.md` (objetivos derivados
 - **SPA** (`ssr: false`) — Supabase es client-side
 - **pnpm** (no npm). `pnpm dev`, `pnpm build`, `pnpm install`
 - Fonts: **@nuxt/fonts** (DM Sans + DM Mono, self-hosted, sin pegar a Google)
-- Estado actual: **prototipo con mock data**, pre-Supabase. Mocks en `app/composables/useMockData.ts`
+- Estado actual: **conectado a Supabase** (org Bensignor, ref `zhnudiedkqlhslebproh`, MCP
+  `supabase-bensignor`). Acceso a datos en `app/composables/useDb.js`. Cálculos contables en vistas
+  SQL (`v_presupuesto_items`, `v_saldos_obra`, `v_control_obra`, `v_retiros_convergencia`)
+- Auth real (login + middleware global). Ver `useAuth.js`, `app/middleware/auth.global.js`
+- Dato cargado: una obra real (**Ramsay 1945**) seedeada desde `MODELO PRESUPUESTO.xlsx`
+  (`supabase/seed_ramsay.sql`). Ver `TESTING.md`
 
 ## Comandos
 
@@ -71,13 +76,23 @@ Fuente única de verdad. Las pages usan clases compartidas + `<style scoped>` m�
    inexistente en app/pages) cuando el dev server está escribiendo `.nuxt` en paralelo. No es error
    real. Verificar con `pnpm build` si hay duda.
 
+## Hecho (resuelto)
+
+- Supabase conectado, auth real, todo persiste (clientes/proveedores/obras/items/caja/retiros)
+- CRUD completo: alta + edición + borrado con guarda de integridad (cliente sin obras; proveedor
+  sin items/movimientos; obra vacía). Borrado con `ConfirmDialog` (modal `<dialog>` nativo)
+- D2 resuelto: rubro = FK a `rubros`, con creación al vuelo (`resolverRubroId` en useDb)
+- TC por transacción (sin "valor dólar por obra"): el dólar se carga al cobrar/mover en USD
+- Listas de clientes y proveedores con búsqueda + orden por columna
+
 ## Pendiente (no hecho)
 
-- Conectar Supabase: el proyecto **no está** en el mapa de orgs del CLAUDE.md global. Hay que
-  crear/elegir uno antes de migraciones. Ver PLAN.md secciones 3-5
-- Cerrar decisiones D1 (atribución cobro→ganancia) y D2 (rubro FK vs texto) del PLAN.md
-- Todos los botones "Crear/Agregar/Guardar/Registrar" son mock (no persisten) hasta tener backend
-- Confirmar con el cliente las 3 dudas abiertas en OBJETIVOS.md
+- D1 (atribución cobro→ganancia para base caja de retiros) del PLAN.md — sigue abierto
+- Exportar PDF: hoy `DocumentoPresupuesto.vue` imprime; a futuro vía Edge Function
+  (`supabase/functions/exportar-presupuesto`), no html2pdf
+- Confirmar con el cliente las dudas abiertas en OBJETIVOS.md
+- Limpieza opcional: columna `obras.tipo_cambio_fallback` quedó sin uso en UI pero la usa
+  `v_presupuesto_items` como fallback de TC USD; sacarla implica recrear esa vista
 
 ## Convenciones
 

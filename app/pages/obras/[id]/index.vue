@@ -1,5 +1,5 @@
 <script setup>
-import { fmtArs as fmt, fmtFecha } from '~/composables/useFormato'
+import { fmtArs as fmt, fmtUsd, fmtFecha } from '~/composables/useFormato'
 
 const route = useRoute()
 const db = useDb()
@@ -14,8 +14,8 @@ const tabs = [
 ]
 
 // ─── Estado cargado de la DB ───────────────────────────────────────────────
-const obra = ref({ id: obraId, nombre_direccion: '', estado: 'activa', cliente: null, tipo_cambio_fallback: null })
-const saldosRaw = ref(null)
+const obra = ref({ id: obraId, nombre_direccion: '', estado: 'activa', cliente: null })
+const controlRaw = ref(null)
 const movimientos = ref([])
 const items = ref([])
 const retiros = ref([])
@@ -23,17 +23,11 @@ const convergencia = ref(null)
 const proveedores = ref([])
 const cargando = ref(true)
 
-// TC efectivo para una moneda: ARS=1, USD=fallback de la obra (o pide cargarlo)
-function tcPara(moneda) {
-  if (moneda === 'ARS') return 1
-  return obra.value.tipo_cambio_fallback || null
-}
-
 async function cargarObra() {
   obra.value = await db.getObra(obraId)
 }
-async function cargarSaldos() {
-  saldosRaw.value = await db.getSaldosObra(obraId)
+async function cargarControl() {
+  controlRaw.value = await db.getControl(obraId)
 }
 async function cargarMovimientos() {
   movimientos.value = await db.getMovimientos(obraId)
@@ -51,7 +45,7 @@ async function cargarConvergencia() {
 onMounted(async () => {
   try {
     await cargarObra()
-    await Promise.all([cargarSaldos(), cargarMovimientos(), cargarItems(), cargarRetiros(), cargarConvergencia()])
+    await Promise.all([cargarControl(), cargarMovimientos(), cargarItems(), cargarRetiros(), cargarConvergencia()])
     proveedores.value = await db.getProveedores()
   } catch (e) {
     console.error(e)
@@ -60,40 +54,95 @@ onMounted(async () => {
   }
 })
 
-// Saldos clave de la obra (labels reales del Excel, hoja Caja)
-const saldos = computed(() => ({
-  aCobrar: Number(saldosRaw.value?.saldo_a_cobrar_ars ?? 0),
-  deudaProveedores: Number(saldosRaw.value?.deuda_proveedores_ars ?? 0),
-  saldoCaja: Number(saldosRaw.value?.saldo_caja_ars ?? 0),
-  honorariosRetirar: Number(convergencia.value?.disponible_para_retirar_ars ?? 0),
+// Bloque de control contable (Excel, hoja Caja filas 170-175). Control debe dar 0.
+const control = computed(() => ({
+  aCobrar: Number(controlRaw.value?.saldo_a_cobrar ?? 0),
+  saldoCaja: Number(controlRaw.value?.saldo_caja ?? 0),
+  deudaProveedores: Number(controlRaw.value?.deuda_proveedores ?? 0),
+  adicionales: Number(controlRaw.value?.adicionales ?? 0),
+  honorariosRetirar: Number(controlRaw.value?.honorarios_a_retirar ?? 0),
+  total: Number(controlRaw.value?.control ?? 0),
 }))
-
-const tipoMeta = {
-  cobro_cliente: { label: 'Cobro', badge: 'badge--cobro' },
-  pago_proveedor: { label: 'Pago', badge: 'badge--pago' },
-  retiro: { label: 'Retiro', badge: 'badge--retiro' },
-}
+// Control redondeado: tolera centavos de redondeo (la flag salta solo si hay diferencia real)
+const controlOk = computed(() => Math.abs(control.value.total) < 1)
 
 // Monto firmado en ARS de un movimiento (cobro +, pago -), para la columna Monto
 function montoFirmado(m) {
   const ars = Number(m.monto) * Number(m.tipo_cambio)
   return m.tipo === 'cobro_cliente' ? ars : -ars
 }
-// Texto de descripción: para pagos muestra el proveedor
+// ¿El movimiento fue cargado en dólares?
+function esUsd(m) {
+  return m.moneda === 'USD'
+}
+// Monto firmado en la moneda original (USD), para mostrar como valor principal
+function montoFirmadoOriginal(m) {
+  const monto = Number(m.monto)
+  return m.tipo === 'cobro_cliente' ? monto : -monto
+}
+// Detalle = acción + a quién. Cobro queda solo ("Cobro": el cliente es siempre el
+// mismo en la obra); pago suma el proveedor ("Pago · Corralon Loyola").
 function descMov(m) {
-  if (m.tipo === 'pago_proveedor' && m.proveedor?.nombre) return m.proveedor.nombre
-  return m.medio_pago ? `(${m.medio_pago})` : ''
+  if (m.tipo === 'pago_proveedor') return `Pago · ${m.proveedor?.nombre || 'Proveedor'}`
+  if (m.tipo === 'cobro_cliente') return 'Cobro'
+  return 'Retiro'
 }
 
 const fechaHoy = new Date().toISOString().split('T')[0]
-const formMov = reactive({ tipo: '', proveedorId: '', monto: '', moneda: 'ARS', medio: '', fecha: fechaHoy })
+const formMovVacio = () => ({ tipo: '', proveedorId: '', monto: '', moneda: 'ARS', tcManual: '', medio: '', fecha: fechaHoy })
+const formMov = reactive(formMovVacio())
 const esPago = computed(() => formMov.tipo === 'pago_proveedor')
 const cajaFormOpen = ref(false)
 const guardandoMov = ref(false)
+// Id del movimiento en edición; null = alta nueva
+const editandoId = ref(null)
 const enDolares = computed({
   get: () => formMov.moneda === 'USD',
   set: (v) => { formMov.moneda = v ? 'USD' : 'ARS' },
 })
+
+// TC efectivo del form: ARS=1; USD=valor del dólar ingresado para ese cobro.
+// No hay fallback por obra: el dólar solo se carga al cobrar en USD, para pasarlo a pesos.
+function tcFormMov() {
+  if (formMov.moneda === 'ARS') return 1
+  const manual = Number(formMov.tcManual)
+  return manual > 0 ? manual : null
+}
+// Equivalente en pesos del monto del form, para previsualizar mientras se carga
+const equivPesos = computed(() => {
+  const tc = tcFormMov()
+  const monto = Number(formMov.monto)
+  if (formMov.moneda !== 'USD' || !tc || !(monto > 0)) return null
+  return monto * tc
+})
+
+function abrirAltaMov() {
+  editandoId.value = null
+  Object.assign(formMov, formMovVacio())
+  Object.keys(errMov).forEach((k) => delete errMov[k])
+  cajaFormOpen.value = true
+}
+function editarMov(m) {
+  editandoId.value = m.id
+  Object.assign(formMov, {
+    tipo: m.tipo,
+    proveedorId: m.proveedor_id || '',
+    monto: String(m.monto),
+    moneda: m.moneda,
+    tcManual: m.moneda === 'USD' ? String(m.tipo_cambio) : '',
+    medio: m.medio_pago || '',
+    fecha: m.fecha,
+  })
+  Object.keys(errMov).forEach((k) => delete errMov[k])
+  cajaFormOpen.value = true
+}
+function cancelarMov() {
+  editandoId.value = null
+  Object.assign(formMov, formMovVacio())
+  Object.keys(errMov).forEach((k) => delete errMov[k])
+  cajaFormOpen.value = false
+}
+
 const errMov = reactive({})
 async function agregarMovimiento() {
   Object.keys(errMov).forEach((k) => delete errMov[k])
@@ -102,13 +151,13 @@ async function agregarMovimiento() {
   if (!formMov.monto || Number(formMov.monto) <= 0) errMov.monto = 'Ingresá un monto mayor a cero.'
   if (!formMov.fecha) errMov.fecha = 'Elegí la fecha.'
   if (!formMov.medio) errMov.medio = 'Elegí el medio de pago.'
-  const tc = tcPara(formMov.moneda)
-  if (tc == null) errMov.monto = 'Cargá el valor del dólar en Configuración para usar USD.'
+  const tc = tcFormMov()
+  if (tc == null) errMov.tcManual = 'Ingresá el valor del dólar.'
   if (Object.keys(errMov).length) return
 
   guardandoMov.value = true
   try {
-    await db.crearMovimiento({
+    const payload = {
       obra_id: obraId,
       tipo: formMov.tipo,
       proveedor_id: esPago.value ? formMov.proveedorId : null,
@@ -117,10 +166,16 @@ async function agregarMovimiento() {
       tipo_cambio: tc,
       medio_pago: formMov.medio,
       fecha: formMov.fecha,
-    })
-    Object.assign(formMov, { tipo: '', proveedorId: '', monto: '', moneda: 'ARS', medio: '', fecha: fechaHoy })
+    }
+    if (editandoId.value) {
+      await db.actualizarMovimiento(editandoId.value, payload)
+    } else {
+      await db.crearMovimiento(payload)
+    }
+    editandoId.value = null
+    Object.assign(formMov, formMovVacio())
     cajaFormOpen.value = false
-    await Promise.all([cargarMovimientos(), cargarSaldos(), cargarConvergencia()])
+    await Promise.all([cargarMovimientos(), cargarControl(), cargarConvergencia()])
   } catch (e) {
     errMov.monto = 'No se pudo guardar. Reintentá.'
     console.error(e)
@@ -129,40 +184,77 @@ async function agregarMovimiento() {
   }
 }
 
+const borrandoId = ref(null)
+async function borrarMov(m) {
+  if (!confirm('¿Borrar este movimiento? No se puede deshacer.')) return
+  borrandoId.value = m.id
+  try {
+    await db.eliminarMovimiento(m.id)
+    if (editandoId.value === m.id) cancelarMov()
+    await Promise.all([cargarMovimientos(), cargarControl(), cargarConvergencia()])
+  } catch (e) {
+    console.error(e)
+  } finally {
+    borrandoId.value = null
+  }
+}
+
 function esPositivo(n) {
   return Number(n) >= 0
 }
+
+// Ordenado por rubro (después por detalle) para leer agrupado. No afecta los totales.
+const itemsOrdenados = computed(() =>
+  [...items.value].sort(
+    (a, b) =>
+      (a.rubro?.nombre || '').localeCompare(b.rubro?.nombre || '') ||
+      (a.detalle || '').localeCompare(b.detalle || ''),
+  ),
+)
 
 // Presupuesto: totales desde las columnas derivadas de la view
 const totalPresupuesto = computed(() => items.value.reduce((a, i) => a + Number(i.total_ars || 0), 0))
 const totalHonorarios = computed(() => items.value.reduce((a, i) => a + Number(i.honorario_ars || 0), 0))
 
 const itemFormOpen = ref(false)
-// costo = valor proveedor [interno]; presupuesto = precio de lista al cliente (H);
-// final = lo que paga el cliente (I, default = presupuesto); notas [interno].
-const formItem = reactive({ rubro: '', detalle: '', costo: '', presupuesto: '', valor: '', notas: '' })
+// costo = valor proveedor [interno]; adicional = sobreprecio sobre el costo (switch);
+// valor presupuesto = costo + adicional; valor final = lo que paga el cliente (default = presupuesto).
+const formItemVacio = () => ({ rubro: '', detalle: '', costo: '', adicionalOn: false, adicional: '', valor: '', notas: '' })
+const formItem = reactive(formItemVacio())
 const guardandoItem = ref(false)
 const errItem = reactive({})
 
-// Autocompletar como el Excel: al cargar el costo, sugerir presupuesto = costo × 1.21.
-// Al cargar/cambiar el presupuesto, sugerir valor final = presupuesto. Todo editable.
-function sugerirPresupuesto() {
+// Valor presupuesto = costo + adicional (el adicional solo cuenta si el switch está activo).
+const presupuestoItem = computed(() => {
   const costo = Number(formItem.costo) || 0
-  if (costo > 0 && !formItem.presupuesto) {
-    formItem.presupuesto = String(Math.round(costo * 1.21))
+  const adicional = formItem.adicionalOn ? (Number(formItem.adicional) || 0) : 0
+  return costo + adicional
+})
+
+// El valor final sigue al presupuesto (costo + adicional) hasta que el usuario lo
+// edite a mano: ahí queda fijo (precio especial al cliente).
+const valorEditado = ref(false)
+
+function toggleAdicional() {
+  formItem.adicionalOn = !formItem.adicionalOn
+  if (!formItem.adicionalOn) formItem.adicional = ''
+  sugerirFinal()
+}
+// Sugerir valor final = presupuesto, salvo que el usuario ya lo haya editado.
+function sugerirFinal() {
+  if (!valorEditado.value && presupuestoItem.value > 0) {
+    formItem.valor = String(presupuestoItem.value)
   }
 }
-function sugerirFinal() {
-  if (formItem.presupuesto && !formItem.valor) {
-    formItem.valor = formItem.presupuesto
-  }
+// Marca el valor final como editado manualmente (deja de auto-sugerirse).
+function onValorInput() {
+  valorEditado.value = true
   delete errItem.valor
 }
 
 async function agregarItem() {
   Object.keys(errItem).forEach((k) => delete errItem[k])
   if (!formItem.rubro.trim()) errItem.rubro = 'Elegí o escribí un rubro.'
-  if (!formItem.detalle.trim()) errItem.detalle = 'Ingresá el detalle.'
   if (!formItem.valor || Number(formItem.valor) <= 0) errItem.valor = 'Ingresá un valor mayor a cero.'
   if (Object.keys(errItem).length) return
 
@@ -171,13 +263,13 @@ async function agregarItem() {
     const rubroId = await db.resolverRubroId(formItem.rubro)
     const costo = Number(formItem.costo) || 0
     const final = Number(formItem.valor)
-    // presupuesto: lo cargado, o el final si no lo separaron (adicional = 0)
-    const presupuesto = Number(formItem.presupuesto) || final
+    // presupuesto = costo + adicional; si no hay adicional, queda igual al costo
+    const presupuesto = presupuestoItem.value || final
     await db.crearItem({
       obra_id: obraId,
       fecha: fechaHoy,
       rubro_id: rubroId,
-      detalle: formItem.detalle.trim(),
+      detalle: formItem.detalle.trim() || null,
       valor_proveedor: costo,
       valor_presupuesto: presupuesto,
       valor_final: final,
@@ -185,9 +277,10 @@ async function agregarItem() {
       moneda: 'ARS',
       moneda_proveedor: 'ARS',
     })
-    Object.assign(formItem, { rubro: '', detalle: '', costo: '', presupuesto: '', valor: '', notas: '' })
+    Object.assign(formItem, formItemVacio())
+    valorEditado.value = false
     itemFormOpen.value = false
-    await Promise.all([cargarItems(), cargarSaldos(), cargarConvergencia()])
+    await Promise.all([cargarItems(), cargarControl(), cargarConvergencia()])
   } catch (e) {
     errItem.valor = 'No se pudo guardar. Reintentá.'
     console.error(e)
@@ -250,7 +343,7 @@ async function registrarRetiro() {
     })
     Object.assign(formRetiro, { total: '', nancy: '', sol: '', fecha: fechaHoy })
     retiroFormOpen.value = false
-    await Promise.all([cargarRetiros(), cargarConvergencia(), cargarSaldos(), cargarMovimientos()])
+    await Promise.all([cargarRetiros(), cargarConvergencia(), cargarControl(), cargarMovimientos()])
   } catch (e) {
     errRetiro.monto = 'No se pudo guardar. Reintentá.'
     console.error(e)
@@ -320,26 +413,42 @@ function cambiarTab(id) {
       </div>
     </header>
 
-    <div class="saldos">
-      <div class="saldo">
-        <span class="saldo__label">A cobrar del cliente</span>
-        <Skeleton v-if="cargando" width="80%" height="25px" />
-        <span v-else class="saldo__value monto">{{ fmt(saldos.aCobrar) }}</span>
+    <!-- Bloque de control contable (Excel, hoja Caja). Las 5 líneas deben sumar 0. -->
+    <div class="control">
+      <div class="control__rows">
+        <div class="control__row">
+          <span class="control__label">Saldo a cobrar del cliente</span>
+          <Skeleton v-if="cargando" width="120px" height="20px" />
+          <span v-else class="control__value monto">{{ fmt(control.aCobrar) }}</span>
+        </div>
+        <div class="control__row">
+          <span class="control__label">Saldo en caja</span>
+          <Skeleton v-if="cargando" width="120px" height="20px" />
+          <span v-else class="control__value monto">{{ fmt(control.saldoCaja) }}</span>
+        </div>
+        <div class="control__row">
+          <span class="control__label">Deuda a proveedores</span>
+          <Skeleton v-if="cargando" width="120px" height="20px" />
+          <span v-else class="control__value monto">{{ fmt(control.deudaProveedores) }}</span>
+        </div>
+        <div class="control__row">
+          <span class="control__label">Adicionales</span>
+          <Skeleton v-if="cargando" width="120px" height="20px" />
+          <span v-else class="control__value monto">{{ fmt(control.adicionales) }}</span>
+        </div>
+        <div class="control__row">
+          <span class="control__label">Saldo de honorarios a retirar</span>
+          <Skeleton v-if="cargando" width="120px" height="20px" />
+          <span v-else class="control__value monto">{{ fmt(control.honorariosRetirar) }}</span>
+        </div>
       </div>
-      <div class="saldo">
-        <span class="saldo__label">Deuda a proveedores</span>
-        <Skeleton v-if="cargando" width="80%" height="25px" />
-        <span v-else class="saldo__value monto monto--neg">{{ fmt(saldos.deudaProveedores) }}</span>
-      </div>
-      <div class="saldo">
-        <span class="saldo__label">Saldo en caja</span>
-        <Skeleton v-if="cargando" width="80%" height="25px" />
-        <span v-else class="saldo__value monto" :class="esPositivo(saldos.saldoCaja) ? 'monto--pos' : 'monto--neg'">{{ fmt(saldos.saldoCaja) }}</span>
-      </div>
-      <div class="saldo saldo--accent">
-        <span class="saldo__label">Honorarios a retirar</span>
-        <Skeleton v-if="cargando" width="80%" height="25px" />
-        <span v-else class="saldo__value monto monto--accent">{{ fmt(saldos.honorariosRetirar) }}</span>
+      <div class="control__total" :class="cargando ? '' : (controlOk ? 'control__total--ok' : 'control__total--error')">
+        <span class="control__label">
+          Control
+          <span v-if="!cargando && !controlOk" class="control__flag">SI NO ES 0 HAY ERROR</span>
+        </span>
+        <Skeleton v-if="cargando" width="120px" height="20px" />
+        <span v-else class="control__value monto">{{ fmt(control.total) }}</span>
       </div>
     </div>
 
@@ -351,12 +460,12 @@ function cambiarTab(id) {
       <section class="panel">
         <div class="panel__head split">
           <span class="eyebrow">Movimientos</span>
-          <button class="btn btn--primary btn--sm" @click="cajaFormOpen = !cajaFormOpen">
+          <button class="btn btn--primary btn--sm" @click="cajaFormOpen ? cancelarMov() : abrirAltaMov()">
             <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
               <path v-if="cajaFormOpen" d="M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
               <path v-else d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
             </svg>
-            Registrar movimiento
+            {{ cajaFormOpen ? 'Cerrar' : 'Registrar movimiento' }}
           </button>
         </div>
 
@@ -388,6 +497,12 @@ function cambiarTab(id) {
             </div>
             <span v-if="errMov.monto" class="field-error">{{ errMov.monto }}</span>
           </div>
+          <div v-if="enDolares" class="field-group col-dolar">
+            <label class="label">Valor dólar</label>
+            <input v-model="formMov.tcManual" type="number" class="field field--num" :class="{ 'field--error': errMov.tcManual }" placeholder="Ej: 1200" @input="delete errMov.tcManual" />
+            <span v-if="errMov.tcManual" class="field-error">{{ errMov.tcManual }}</span>
+            <span v-else-if="equivPesos != null" class="field-hint">= {{ fmt(equivPesos) }}</span>
+          </div>
           <div class="field-group col-fecha">
             <label class="label">Fecha</label>
             <input v-model="formMov.fecha" type="date" class="field" :class="{ 'field--error': errMov.fecha }" @input="delete errMov.fecha" />
@@ -403,7 +518,7 @@ function cambiarTab(id) {
             <span v-if="errMov.medio" class="field-error">{{ errMov.medio }}</span>
           </div>
           <div class="field-group col-submit">
-            <button type="submit" class="btn btn--primary" :disabled="guardandoMov">{{ guardandoMov ? 'Guardando…' : 'Agregar movimiento' }}</button>
+            <button type="submit" class="btn btn--primary" :disabled="guardandoMov">{{ guardandoMov ? 'Guardando…' : (editandoId ? 'Guardar cambios' : 'Agregar movimiento') }}</button>
           </div>
         </form>
 
@@ -413,18 +528,38 @@ function cambiarTab(id) {
             <tr>
               <th style="width: 92px">Fecha</th>
               <th>Detalle</th>
-              <th style="width: 100px">Tipo</th>
               <th class="num" style="width: 150px">Monto</th>
               <th class="num" style="width: 150px">Saldo</th>
+              <th style="width: 88px"></th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="m in movimientos" :key="m.id">
+            <tr v-for="m in movimientos" :key="m.id" :class="{ 'row--editando': editandoId === m.id }">
               <td class="cell-date">{{ fmtFecha(m.fecha) }}</td>
-              <td class="cell-muted">{{ descMov(m) }}</td>
-              <td><span class="badge" :class="tipoMeta[m.tipo].badge">{{ tipoMeta[m.tipo].label }}</span></td>
-              <td class="num monto" :class="esPositivo(montoFirmado(m)) ? 'monto--pos' : 'monto--neg'">{{ esPositivo(montoFirmado(m)) ? '+' : '' }}{{ fmt(montoFirmado(m)) }}</td>
+              <td>
+                <span class="cell-strong">{{ descMov(m) }}</span>
+                <span v-if="m.medio_pago" class="cell-medio">{{ m.medio_pago }}</span>
+              </td>
+              <td class="num monto" :class="esPositivo(montoFirmado(m)) ? 'monto--pos' : 'monto--neg'">
+                <template v-if="esUsd(m)">
+                  {{ esPositivo(montoFirmado(m)) ? '+' : '' }}{{ fmtUsd(montoFirmadoOriginal(m)) }}
+                  <span class="monto-equiv">{{ fmt(montoFirmado(m)) }}</span>
+                </template>
+                <template v-else>{{ esPositivo(montoFirmado(m)) ? '+' : '' }}{{ fmt(montoFirmado(m)) }}</template>
+              </td>
               <td class="num monto cell-saldo">{{ fmt(m.saldo_acumulado_ars) }}</td>
+              <td class="cell-acciones">
+                <button type="button" class="icon-btn" title="Editar" @click="editarMov(m)">
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                    <path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10l7.5-7.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
+                  </svg>
+                </button>
+                <button type="button" class="icon-btn icon-btn--danger" title="Borrar" :disabled="borrandoId === m.id" @click="borrarMov(m)">
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                    <path d="M3 4h10M6.5 4V3h3v1M5 4l.5 9h5L11 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </button>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -444,38 +579,63 @@ function cambiarTab(id) {
           </button>
         </div>
 
-        <form v-if="itemFormOpen" class="mov-form" @submit.prevent="agregarItem">
-          <div class="field-group">
-            <label class="label">Rubro</label>
-            <RubroCombo v-model="formItem.rubro" placeholder="Ej: Albañilería" :invalid="!!errItem.rubro" @update:model-value="delete errItem.rubro" />
-            <span v-if="errItem.rubro" class="field-error">{{ errItem.rubro }}</span>
+        <form v-if="itemFormOpen" class="item-form" @submit.prevent="agregarItem">
+          <!-- Qué es -->
+          <div class="item-form__row item-form__row--2">
+            <div class="field-group">
+              <label class="label">Rubro</label>
+              <RubroCombo v-model="formItem.rubro" placeholder="Ej: Albañilería" :invalid="!!errItem.rubro" @update:model-value="delete errItem.rubro" />
+              <span v-if="errItem.rubro" class="field-error">{{ errItem.rubro }}</span>
+            </div>
+            <div class="field-group">
+              <label class="label">Detalle <span class="label-opt">(opcional)</span></label>
+              <input v-model="formItem.detalle" type="text" class="field" placeholder="Ej: Demolición y contrapiso" />
+            </div>
           </div>
-          <div class="field-group">
-            <label class="label">Detalle</label>
-            <input v-model="formItem.detalle" type="text" class="field" :class="{ 'field--error': errItem.detalle }" placeholder="Ej: Demolición y contrapiso" @input="delete errItem.detalle" />
-            <span v-if="errItem.detalle" class="field-error">{{ errItem.detalle }}</span>
+
+          <!-- Números: la cuenta costo + adicional → valor final -->
+          <fieldset class="item-form__money">
+            <div class="money-row">
+              <div class="field-group">
+                <label class="label">Costo del proveedor</label>
+                <input v-model="formItem.costo" type="number" class="field field--num" placeholder="0" @input="sugerirFinal" />
+              </div>
+
+              <span class="money-op">+</span>
+
+              <div class="field-group">
+                <div class="label-row">
+                  <label class="label">Adicional</label>
+                  <button type="button" class="switch" :class="{ 'switch--on': formItem.adicionalOn }" role="switch" :aria-checked="formItem.adicionalOn" @click="toggleAdicional">
+                    <span class="switch__knob"></span>
+                  </button>
+                </div>
+                <input v-model="formItem.adicional" type="number" class="field field--num" :class="{ 'field--off': !formItem.adicionalOn }" placeholder="0" :disabled="!formItem.adicionalOn" @input="sugerirFinal" />
+              </div>
+
+              <span class="money-op">=</span>
+
+              <div class="field-group">
+                <label class="label">Valor final</label>
+                <input v-model="formItem.valor" type="number" class="field field--num" :class="{ 'field--error': errItem.valor }" placeholder="0" @input="onValorInput" />
+                <span v-if="errItem.valor" class="field-error">{{ errItem.valor }}</span>
+              </div>
+            </div>
+
+            <p class="money-note">
+              <span><strong>Costo</strong> y <strong>adicional</strong> son internos, nunca salen en el presupuesto del cliente.</span>
+              <span>El <strong>valor final</strong> es lo que paga el cliente. Por defecto = costo + adicional ({{ fmt(presupuestoItem) }}).</span>
+            </p>
+          </fieldset>
+
+          <div class="item-form__row">
+            <div class="field-group">
+              <label class="label">Notas</label>
+              <input v-model="formItem.notas" type="text" class="field" placeholder="Opcional, interno" />
+            </div>
           </div>
-          <div class="field-group">
-            <label class="label">Costo del proveedor</label>
-            <input v-model="formItem.costo" type="number" class="field field--num" placeholder="0" @blur="sugerirPresupuesto" />
-            <span class="hint">Interno. Nunca sale en el presupuesto del cliente.</span>
-          </div>
-          <div class="field-group">
-            <label class="label">Valor presupuesto</label>
-            <input v-model="formItem.presupuesto" type="number" class="field field--num" placeholder="0" @blur="sugerirFinal" />
-            <span class="hint">Precio de lista al cliente. Sugerido: costo × 1,21.</span>
-          </div>
-          <div class="field-group">
-            <label class="label">Valor final</label>
-            <input v-model="formItem.valor" type="number" class="field field--num" :class="{ 'field--error': errItem.valor }" placeholder="0" @input="delete errItem.valor" />
-            <span v-if="errItem.valor" class="field-error">{{ errItem.valor }}</span>
-            <span v-else class="hint">Lo que paga el cliente. Por defecto = presupuesto.</span>
-          </div>
-          <div class="field-group field-group--full">
-            <label class="label">Notas</label>
-            <input v-model="formItem.notas" type="text" class="field" placeholder="Opcional, interno" />
-          </div>
-          <div class="field-group col-submit">
+
+          <div class="item-form__actions">
             <button type="submit" class="btn btn--primary" :disabled="guardandoItem">{{ guardandoItem ? 'Guardando…' : 'Agregar ítem' }}</button>
           </div>
         </form>
@@ -492,9 +652,9 @@ function cambiarTab(id) {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="it in items" :key="it.id">
+            <tr v-for="it in itemsOrdenados" :key="it.id">
               <td class="cell-strong">{{ it.rubro?.nombre || '—' }}</td>
-              <td class="cell-muted">{{ it.detalle }}</td>
+              <td class="cell-muted">{{ it.detalle || '—' }}</td>
               <td class="num monto">{{ fmt(it.valor_final_ars) }}</td>
               <td class="num monto monto--accent">{{ fmt(it.honorario_ars) }}</td>
               <td class="num monto cell-saldo">{{ fmt(it.total_ars) }}</td>
@@ -614,20 +774,54 @@ function cambiarTab(id) {
 /* Documento del presupuesto: oculto en pantalla, el @media print global lo muestra */
 .solo-print { display: none; }
 
-.saldos {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1px;
+/* Bloque de control contable (réplica del Excel): 5 saldos + fila Control que cierra en 0 */
+.control {
   margin: 0 0 28px;
-  background: var(--border);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   overflow: hidden;
 }
-.saldo { display: flex; flex-direction: column; gap: 12px; padding: 20px 22px; background: var(--surface); }
-.saldo--accent { background: var(--accent-subtle); }
-.saldo__label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-muted); }
-.saldo__value { font-size: 25px; letter-spacing: -0.4px; }
+.control__rows { display: flex; flex-direction: column; }
+.control__row {
+  display: flex; justify-content: space-between; align-items: center; gap: 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 13px 22px;
+}
+.control__label { font-size: 15px; color: var(--ink); }
+.control__value { font-size: 16px; }
+.control__total {
+  display: flex; justify-content: space-between; align-items: center; gap: 16px;
+  background: var(--accent-subtle);
+  padding: 15px 22px;
+}
+.control__total .control__label { font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; font-size: 14px; }
+.control__total .control__value { font-size: 18px; font-weight: 600; }
+.control__total--ok { background: var(--positive-bg); color: var(--positive); }
+.control__total--ok .control__value { color: var(--positive); }
+.control__total--error { background: var(--negative-bg); color: var(--negative); }
+.control__total--error .control__value { color: var(--negative); }
+.control__flag {
+  margin-left: 10px; font-size: 12px; font-weight: 600; letter-spacing: 0;
+  text-transform: none; color: var(--negative);
+}
+
+/* Equivalente en pesos debajo del monto en USD (columna Monto) */
+.monto-equiv { display: block; font-size: 13px; color: var(--ink-muted); margin-top: 2px; }
+/* Equivalente en pesos previsualizado bajo el campo Valor dólar */
+.field-hint { font-size: 13px; color: var(--ink-muted); margin-top: 4px; }
+
+/* Acciones por fila (editar / borrar) */
+.cell-acciones { display: flex; gap: 4px; }
+.icon-btn {
+  display: flex; align-items: center; justify-content: center;
+  background: transparent; border: none; color: var(--ink-muted);
+  cursor: pointer; transition: color 150ms var(--ease-out); padding: 6px;
+}
+.icon-btn:hover { color: var(--ink); }
+.icon-btn--danger:hover { color: var(--negative); }
+.icon-btn:disabled { opacity: 0.4; cursor: default; }
+.row--editando { background: var(--accent-subtle); }
 
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
 .tab {
@@ -708,16 +902,84 @@ function cambiarTab(id) {
 }
 .moneda-toggle--on { background: var(--accent); border-color: var(--accent); color: var(--surface); }
 
+/* Switch de Adicional (label + toggle en la misma fila) */
+.label-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.label-row .label { margin-bottom: 0; }
+.switch {
+  width: 40px; height: 22px;
+  display: flex; align-items: center;
+  position: relative;
+  background: var(--border); border: none; border-radius: 11px;
+  cursor: pointer; transition: background 150ms var(--ease-out);
+  padding: 0;
+}
+.switch--on { background: var(--accent); }
+.switch__knob {
+  width: 18px; height: 18px;
+  background: var(--surface); border-radius: 50%;
+  transition: transform 150ms var(--ease-out);
+  transform: translateX(2px);
+}
+.switch--on .switch__knob { transform: translateX(20px); }
+
+/* Form de ítem de presupuesto */
+.item-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 18px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.item-form__row { display: grid; grid-template-columns: 1fr; gap: 16px 20px; }
+.item-form__row--2 { grid-template-columns: 1fr 1fr; }
+
+/* La cuenta: costo + adicional = valor final, en una tira con operadores */
+.item-form__money {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin: 0;
+}
+.money-row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr auto 1fr;
+  align-items: end;
+  gap: 12px;
+}
+.money-op {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  color: var(--ink-faint);
+  padding-bottom: 11px;
+}
+.field--off { color: var(--ink-faint); background: var(--surface-raised); }
+.money-note {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+  color: var(--ink-muted);
+  line-height: 1.4;
+}
+.money-note strong { color: var(--ink); font-weight: 600; }
+.item-form__actions { display: flex; justify-content: flex-end; }
+.label-opt { font-weight: 400; color: var(--ink-faint); text-transform: none; letter-spacing: 0; }
+
 .cell-strong { font-weight: 600; color: var(--ink); }
 .cell-muted { color: var(--ink-muted); }
+.cell-medio { display: block; font-size: 13px; color: var(--ink-faint); text-transform: capitalize; margin-top: 2px; }
 .table tfoot td { padding: 15px 18px; border-top: 1px solid var(--border); background: var(--surface-raised); }
 .cell-total-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-muted); }
 .cell-total { font-weight: 600; font-size: 16px; color: var(--ink); }
 
-@media (max-width: 760px) {
-  .saldos { grid-template-columns: repeat(2, 1fr); }
-}
 @media (max-width: 560px) {
   .mov-form { grid-template-columns: 1fr; }
+  .item-form__row--2 { grid-template-columns: 1fr; }
+  .money-row { grid-template-columns: 1fr; }
+  .money-op { display: none; }
 }
 </style>

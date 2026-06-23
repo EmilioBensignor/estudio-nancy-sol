@@ -1,6 +1,6 @@
 <script setup>
 const route = useRoute()
-const { getObra, actualizarObra, getSettings } = useDb()
+const { getObra, actualizarObra, getSettings, contarUsosDeObra, eliminarObra } = useDb()
 
 const obraId = route.params.id
 const obra = ref({ id: obraId, nombre_direccion: '' })
@@ -10,7 +10,6 @@ const form = reactive({
   nombre: '',
   estado: 'activa',
   honorario: '15',
-  tcFallback: '',
   splitNancy: '50',
   splitSol: '50',
 })
@@ -35,13 +34,47 @@ onMounted(async () => {
     form.honorario = aPct(o.honorario_override, aPct(settings?.honorario_default, '15'))
     form.splitNancy = aPct(o.split_nancy_override, aPct(settings?.target_reparto_nancy, '50'))
     form.splitSol = aPct(o.split_sol_override, aPct(settings?.target_reparto_sol, '50'))
-    form.tcFallback = o.tipo_cambio_fallback != null ? String(o.tipo_cambio_fallback) : ''
   } catch (e) {
     console.error(e)
   } finally {
     cargando.value = false
   }
 })
+
+const modalAbierto = ref(false)
+const eliminando = ref(false)
+const bloqueo = ref('')
+const errorEliminar = ref('')
+
+async function abrirModal() {
+  errorEliminar.value = ''
+  bloqueo.value = ''
+  modalAbierto.value = true
+  try {
+    const usos = await contarUsosDeObra(obraId)
+    if (usos > 0) {
+      bloqueo.value = `No se puede eliminar: la obra tiene ${usos} registro${usos === 1 ? '' : 's'} cargado${usos === 1 ? '' : 's'} (caja, presupuesto o retiros).`
+    }
+  } catch (e) {
+    bloqueo.value = 'No se pudo verificar si la obra tiene movimientos.'
+    console.error(e)
+  }
+}
+
+async function eliminar() {
+  if (bloqueo.value) return
+  eliminando.value = true
+  errorEliminar.value = ''
+  try {
+    await eliminarObra(obraId)
+    navigateTo('/')
+  } catch (e) {
+    errorEliminar.value = 'No se pudo eliminar la obra. Reintentá.'
+    console.error(e)
+    eliminando.value = false
+    modalAbierto.value = false
+  }
+}
 
 async function guardar() {
   Object.keys(errors).forEach((k) => delete errors[k])
@@ -59,7 +92,6 @@ async function guardar() {
       honorario_override: form.honorario ? Number(form.honorario) / 100 : null,
       split_nancy_override: form.splitNancy ? Number(form.splitNancy) / 100 : null,
       split_sol_override: form.splitSol ? Number(form.splitSol) / 100 : null,
-      tipo_cambio_fallback: form.tcFallback ? Number(form.tcFallback) : null,
     })
     navigateTo(`/obras/${obraId}`)
   } catch (e) {
@@ -116,18 +148,13 @@ async function guardar() {
       <section class="group">
         <div class="group__head">
           <h2 class="group__title">Cálculo</h2>
-          <p class="group__sub">Honorario y tipo de cambio de esta obra</p>
+          <p class="group__sub">Honorario de esta obra</p>
         </div>
         <div class="fields">
           <div class="field-group">
             <label class="label">Honorario (%)</label>
             <input v-model="form.honorario" type="number" step="1" class="field field--num" />
             <span class="hint">Por defecto 15%. Aplica a toda la obra.</span>
-          </div>
-          <div class="field-group">
-            <label class="label">Valor del dólar</label>
-            <input v-model="form.tcFallback" type="number" step="1" class="field field--num" />
-            <span class="hint">Opcional, se puede cambiar después.</span>
           </div>
         </div>
       </section>
@@ -156,10 +183,24 @@ async function guardar() {
       <span v-if="errorGuardar" class="field-error field-error--full">{{ errorGuardar }}</span>
 
       <div class="form-actions">
-        <NuxtLink :to="`/obras/${obra.id}`" class="btn btn--ghost">Cancelar</NuxtLink>
-        <button type="submit" class="btn btn--primary" :disabled="guardando">{{ guardando ? 'Guardando…' : 'Guardar cambios' }}</button>
+        <button type="button" class="btn btn--danger-ghost" @click="abrirModal">Eliminar obra</button>
+        <div class="form-actions__right">
+          <NuxtLink :to="`/obras/${obra.id}`" class="btn btn--ghost">Cancelar</NuxtLink>
+          <button type="submit" class="btn btn--primary" :disabled="guardando">{{ guardando ? 'Guardando…' : 'Guardar cambios' }}</button>
+        </div>
       </div>
+      <span v-if="errorEliminar" class="field-error field-error--full">{{ errorEliminar }}</span>
     </form>
+
+    <ConfirmDialog
+      :open="modalAbierto"
+      titulo="Eliminar obra"
+      :mensaje="`¿Seguro que querés eliminar “${form.nombre}”? Esta acción no se puede deshacer.`"
+      :bloqueo="bloqueo"
+      :procesando="eliminando"
+      @confirmar="eliminar"
+      @cerrar="modalAbierto = false"
+    />
   </div>
 </template>
 
@@ -170,6 +211,7 @@ async function guardar() {
 .group__sub { font-size: 14px; color: var(--ink-muted); margin-top: 3px; }
 .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 20px; align-items: start; }
 .field-error--full { grid-column: 1 / -1; margin-top: -8px; }
-.form-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.form-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.form-actions__right { display: flex; align-items: center; gap: 10px; }
 @media (max-width: 600px) { .fields { grid-template-columns: 1fr; } }
 </style>

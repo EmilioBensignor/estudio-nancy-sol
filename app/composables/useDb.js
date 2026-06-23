@@ -16,10 +16,37 @@ export function useDb() {
     return data
   }
 
+  async function getCliente(id) {
+    const { data, error } = await sb().from('clientes').select('*').eq('id', id).single()
+    if (error) throw error
+    return data
+  }
+
   async function crearCliente(cliente) {
     const { data, error } = await sb().from('clientes').insert(cliente).select().single()
     if (error) throw error
     return data
+  }
+
+  async function actualizarCliente(id, cambios) {
+    const { data, error } = await sb().from('clientes').update(cambios).eq('id', id).select().single()
+    if (error) throw error
+    return data
+  }
+
+  // Cuenta obras asociadas: si > 0 no se puede eliminar (guarda de integridad).
+  async function contarObrasDeCliente(id) {
+    const { count, error } = await sb()
+      .from('obras')
+      .select('id', { count: 'exact', head: true })
+      .eq('cliente_id', id)
+    if (error) throw error
+    return count || 0
+  }
+
+  async function eliminarCliente(id) {
+    const { error } = await sb().from('clientes').delete().eq('id', id)
+    if (error) throw error
   }
 
   // ─── Proveedores ───────────────────────────────────────────────────────
@@ -32,10 +59,42 @@ export function useDb() {
     return data
   }
 
+  async function getProveedor(id) {
+    const { data, error } = await sb()
+      .from('proveedores')
+      .select('*, rubro:rubros(id, nombre)')
+      .eq('id', id)
+      .single()
+    if (error) throw error
+    return data
+  }
+
   async function crearProveedor(proveedor) {
     const { data, error } = await sb().from('proveedores').insert(proveedor).select().single()
     if (error) throw error
     return data
+  }
+
+  async function actualizarProveedor(id, cambios) {
+    const { data, error } = await sb().from('proveedores').update(cambios).eq('id', id).select().single()
+    if (error) throw error
+    return data
+  }
+
+  // Cuenta usos del proveedor en items y movimientos: si > 0 no se elimina.
+  async function contarUsosDeProveedor(id) {
+    const [items, movs] = await Promise.all([
+      sb().from('presupuesto_items').select('id', { count: 'exact', head: true }).eq('proveedor_id', id),
+      sb().from('movimientos_caja').select('id', { count: 'exact', head: true }).eq('proveedor_id', id),
+    ])
+    if (items.error) throw items.error
+    if (movs.error) throw movs.error
+    return (items.count || 0) + (movs.count || 0)
+  }
+
+  async function eliminarProveedor(id) {
+    const { error } = await sb().from('proveedores').delete().eq('id', id)
+    if (error) throw error
   }
 
   // ─── Rubros (catálogo + crear al vuelo) ────────────────────────────────
@@ -107,8 +166,33 @@ export function useDb() {
     return data
   }
 
+  // Cuenta movimientos + items + retiros de una obra: si > 0 no se elimina.
+  async function contarUsosDeObra(id) {
+    const [movs, items, retiros] = await Promise.all([
+      sb().from('movimientos_caja').select('id', { count: 'exact', head: true }).eq('obra_id', id),
+      sb().from('presupuesto_items').select('id', { count: 'exact', head: true }).eq('obra_id', id),
+      sb().from('retiros').select('id', { count: 'exact', head: true }).eq('obra_id', id),
+    ])
+    if (movs.error) throw movs.error
+    if (items.error) throw items.error
+    if (retiros.error) throw retiros.error
+    return (movs.count || 0) + (items.count || 0) + (retiros.count || 0)
+  }
+
+  async function eliminarObra(id) {
+    const { error } = await sb().from('obras').delete().eq('id', id)
+    if (error) throw error
+  }
+
   async function getSaldosObra(obraId) {
     const { data, error } = await sb().from('v_saldos_obra').select('*').eq('obra_id', obraId).maybeSingle()
+    if (error) throw error
+    return data
+  }
+
+  // Bloque de control contable de la obra (5 saldos + control que debe dar 0).
+  async function getControl(obraId) {
+    const { data, error } = await sb().from('v_control_obra').select('*').eq('obra_id', obraId).maybeSingle()
     if (error) throw error
     return data
   }
@@ -147,12 +231,15 @@ export function useDb() {
   // ─── Caja ──────────────────────────────────────────────────────────────
   // Movimientos con saldo acumulado (de v_caja_saldo) + descripción/proveedor.
   async function getMovimientos(obraId) {
+    // Orden de visualización: más reciente arriba. El saldo acumulado se calcula
+    // aparte en v_caja_saldo (cronológico ascendente), así que el orden de esta
+    // lista no afecta el cálculo del acumulado.
     const { data: movs, error } = await sb()
       .from('movimientos_caja')
       .select('*, proveedor:proveedores(nombre)')
       .eq('obra_id', obraId)
-      .order('fecha')
-      .order('created_at')
+      .order('fecha', { ascending: false })
+      .order('created_at', { ascending: false })
     if (error) throw error
 
     const { data: saldo, error: e2 } = await sb()
@@ -168,6 +255,17 @@ export function useDb() {
     const { data, error } = await sb().from('movimientos_caja').insert(mov).select().single()
     if (error) throw error
     return data
+  }
+
+  async function actualizarMovimiento(id, cambios) {
+    const { data, error } = await sb().from('movimientos_caja').update(cambios).eq('id', id).select().single()
+    if (error) throw error
+    return data
+  }
+
+  async function eliminarMovimiento(id) {
+    const { error } = await sb().from('movimientos_caja').delete().eq('id', id)
+    if (error) throw error
   }
 
   // ─── Retiros ───────────────────────────────────────────────────────────
@@ -205,12 +303,12 @@ export function useDb() {
   }
 
   return {
-    getClientes, crearCliente,
-    getProveedores, crearProveedor,
+    getClientes, getCliente, crearCliente, actualizarCliente, contarObrasDeCliente, eliminarCliente,
+    getProveedores, getProveedor, crearProveedor, actualizarProveedor, contarUsosDeProveedor, eliminarProveedor,
     getRubros, resolverRubroId,
-    getObras, getObra, crearObra, actualizarObra, getSaldosObra,
+    getObras, getObra, crearObra, actualizarObra, contarUsosDeObra, eliminarObra, getSaldosObra, getControl,
     getItems, crearItem, getPresupuestoCliente,
-    getMovimientos, crearMovimiento,
+    getMovimientos, crearMovimiento, actualizarMovimiento, eliminarMovimiento,
     getRetiros, getConvergencia, crearRetiro,
     getSettings,
   }

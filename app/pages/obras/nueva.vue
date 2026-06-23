@@ -7,7 +7,6 @@ const form = reactive({
   clienteId: '',
   nombre: '',
   fecha: '',
-  tcFallback: '',
 })
 
 const guardando = ref(false)
@@ -35,7 +34,6 @@ async function crear() {
       cliente_id: form.clienteId,
       nombre_direccion: form.nombre.trim(),
       fecha_inicio: form.fecha || null,
-      tipo_cambio_fallback: form.tcFallback ? Number(form.tcFallback) : null,
     })
     navigateTo('/')
   } catch (e) {
@@ -84,12 +82,6 @@ async function crear() {
           <label class="label">Fecha de inicio</label>
           <input v-model="form.fecha" type="date" class="field" />
         </div>
-
-        <div class="field-group">
-          <label class="label">Valor del dólar</label>
-          <input v-model="form.tcFallback" type="number" step="1" min="0" class="field field--num field--tc" placeholder="1200" />
-          <span class="hint">Opcional, se puede cambiar después.</span>
-        </div>
       </div>
 
       <span v-if="errorGuardar" class="field-error">{{ errorGuardar }}</span>
@@ -106,7 +98,6 @@ async function crear() {
 .form-card { padding: 26px 28px; display: flex; flex-direction: column; gap: 24px; }
 .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 20px; }
 .field-group--full { grid-column: 1 / -1; }
-.field--tc { text-align: left; }
 .form-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 @media (max-width: 600px) { .fields { grid-template-columns: 1fr; } }
 </style>

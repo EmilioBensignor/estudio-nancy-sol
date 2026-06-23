@@ -1,5 +1,7 @@
 <script setup>
-const { crearCliente } = useDb()
+const route = useRoute()
+const id = route.params.id
+const { getCliente, actualizarCliente, contarObrasDeCliente, eliminarCliente } = useDb()
 
 const form = reactive({
   nombre: '',
@@ -9,11 +11,49 @@ const form = reactive({
   cuit: '',
 })
 
+const cargando = ref(true)
+const errorCarga = ref('')
 const errors = reactive({})
 const guardando = ref(false)
 const errorGuardar = ref('')
 
-async function crear() {
+const modalAbierto = ref(false)
+const eliminando = ref(false)
+const bloqueo = ref('')
+const errorEliminar = ref('')
+
+async function abrirModal() {
+  errorEliminar.value = ''
+  bloqueo.value = ''
+  modalAbierto.value = true
+  try {
+    const obras = await contarObrasDeCliente(id)
+    if (obras > 0) {
+      bloqueo.value = `No se puede eliminar: el cliente tiene ${obras} obra${obras === 1 ? '' : 's'} asociada${obras === 1 ? '' : 's'}.`
+    }
+  } catch (e) {
+    bloqueo.value = 'No se pudo verificar si tiene obras asociadas.'
+    console.error(e)
+  }
+}
+
+onMounted(async () => {
+  try {
+    const c = await getCliente(id)
+    form.nombre = c.nombre || ''
+    form.sobrenombre = c.sobrenombre || ''
+    form.telefono = c.telefono || ''
+    form.email = c.email || ''
+    form.cuit = c.cuit || ''
+  } catch (e) {
+    errorCarga.value = 'No se pudo cargar el cliente.'
+    console.error(e)
+  } finally {
+    cargando.value = false
+  }
+})
+
+async function guardar() {
   Object.keys(errors).forEach((k) => delete errors[k])
   if (!form.nombre.trim()) errors.nombre = 'Ingresá el nombre del cliente.'
   if (!form.telefono.trim()) errors.telefono = 'Ingresá un teléfono de contacto.'
@@ -22,7 +62,7 @@ async function crear() {
   guardando.value = true
   errorGuardar.value = ''
   try {
-    await crearCliente({
+    await actualizarCliente(id, {
       nombre: form.nombre.trim(),
       sobrenombre: form.sobrenombre.trim() || null,
       telefono: form.telefono.trim() || null,
@@ -34,6 +74,21 @@ async function crear() {
     errorGuardar.value = 'No se pudo guardar el cliente. Reintentá.'
     console.error(e)
     guardando.value = false
+  }
+}
+
+async function eliminar() {
+  if (bloqueo.value) return
+  eliminando.value = true
+  errorEliminar.value = ''
+  try {
+    await eliminarCliente(id)
+    navigateTo('/clientes')
+  } catch (e) {
+    errorEliminar.value = 'No se pudo eliminar el cliente. Reintentá.'
+    console.error(e)
+    eliminando.value = false
+    modalAbierto.value = false
   }
 }
 </script>
@@ -49,13 +104,16 @@ async function crear() {
       </NuxtLink>
       <div class="page-header__row">
         <div class="page-header__titles">
-          <h1 class="title">Nuevo cliente</h1>
+          <h1 class="title">Editar cliente</h1>
           <p class="subtitle">Datos de contacto</p>
         </div>
       </div>
     </header>
 
-    <form class="card form-card" @submit.prevent="crear">
+    <p v-if="cargando" class="estado-msg">Cargando…</p>
+    <p v-else-if="errorCarga" class="estado-msg estado-msg--error">{{ errorCarga }}</p>
+
+    <form v-else class="card form-card" @submit.prevent="guardar">
       <div class="fields">
         <div class="field-group">
           <label class="label">Nombre completo</label>
@@ -86,17 +144,33 @@ async function crear() {
       <span v-if="errorGuardar" class="field-error">{{ errorGuardar }}</span>
 
       <div class="form-actions">
-        <NuxtLink to="/clientes" class="btn btn--ghost">Cancelar</NuxtLink>
-        <button type="submit" class="btn btn--primary" :disabled="guardando">{{ guardando ? 'Guardando…' : 'Crear cliente' }}</button>
+        <div class="form-actions__left">
+          <button type="button" class="btn btn--danger-ghost" @click="abrirModal">Eliminar</button>
+        </div>
+        <div class="form-actions__right">
+          <NuxtLink to="/clientes" class="btn btn--ghost">Cancelar</NuxtLink>
+          <button type="submit" class="btn btn--primary" :disabled="guardando">{{ guardando ? 'Guardando…' : 'Guardar cambios' }}</button>
+        </div>
       </div>
+      <span v-if="errorEliminar" class="field-error">{{ errorEliminar }}</span>
     </form>
+
+    <ConfirmDialog
+      :open="modalAbierto"
+      titulo="Eliminar cliente"
+      :mensaje="`¿Seguro que querés eliminar a ${form.nombre}? Esta acción no se puede deshacer.`"
+      :bloqueo="bloqueo"
+      :procesando="eliminando"
+      @confirmar="eliminar"
+      @cerrar="modalAbierto = false"
+    />
   </div>
 </template>
 
 <style scoped>
 .form-card { padding: 26px 28px; display: flex; flex-direction: column; gap: 24px; }
 .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 20px; }
-.field--num { text-align: left; }
-.form-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.form-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.form-actions__left, .form-actions__right { display: flex; align-items: center; gap: 10px; }
 @media (max-width: 600px) { .fields { grid-template-columns: 1fr; } }
 </style>
