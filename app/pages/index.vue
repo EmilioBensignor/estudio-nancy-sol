@@ -78,8 +78,8 @@ const totalEnCaja = computed(() => obras.value.reduce((acc, o) => acc + Number(o
           :class="{ 'obra-card--done': obra.estado === 'finalizada' }"
           tabindex="0"
           role="button"
-          @click="navigateTo(`/obras/${obra.id}`)"
-          @keydown.enter="navigateTo(`/obras/${obra.id}`)"
+          @click="navigateTo(`/obras/${obra.slug || obra.id}`)"
+          @keydown.enter="navigateTo(`/obras/${obra.slug || obra.id}`)"
         >
           <div class="obra-card__head">
             <div class="obra-card__id">

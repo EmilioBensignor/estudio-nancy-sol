@@ -28,18 +28,36 @@ reemplaza un Excel de gestión de obras. Ver `OBJETIVOS.md` (objetivos derivados
 ```
 /                          app/pages/index.vue            lista de obras + balance hero
 /obras/nueva               app/pages/obras/nueva.vue      alta de obra
-/obras/[id]                app/pages/obras/[id]/index.vue detalle con tabs (Caja/Presupuesto/Retiros)
-/obras/[id]/configuracion  config de obra (honorario, TC, split)
-/obras/[id]/exportar       documento de presupuesto imprimible para cliente
-/clientes                  app/pages/clientes/index.vue   lista (link a obra)
+/obras/[id]                app/pages/obras/[id]/index.vue detalle, tabs (Caja/Presupuesto/Proveedores/Retiros)
+/obras/[id]/configuracion  config de obra (honorario, split, estado) + eliminar obra
+/clientes                  app/pages/clientes/index.vue   lista (búsqueda + orden, link a obra)
 /clientes/nuevo            alta de cliente
-/proveedores               app/pages/proveedores/index.vue lista (columna rubro, sin divisores)
+/clientes/[id]/editar      editar + eliminar (guarda: sin obras)
+/proveedores               app/pages/proveedores/index.vue lista (búsqueda + orden)
 /proveedores/nuevo         alta (rubro = combobox texto libre con sugerencias)
+/proveedores/[id]/editar   editar + eliminar (guarda: sin items/movimientos)
 ```
+
+**Rutas de obra por slug**: la URL usa `obras/ramsay-1945` (no el UUID). Columna `obras.slug`
+única; `crearObra` la genera del nombre con sufijo -2/-3 si se repite. `getObra(idOrSlug)` acepta
+ambos. En `[id]/index.vue` el `obraId` se resuelve al UUID real tras cargar (las queries filtran
+por id real). El PDF exportado se llama como el slug (vía `document.title`).
 
 Navegación interna: **siempre `<NuxtLink>`**, nunca `<a href>` (en SPA no rutea bien).
 Cuando un archivo `x.vue` necesita rutas hijas `x/nuevo`, mover a `x/index.vue` (sino la ruta hija
 renderiza la lista).
+
+## Componentes de formulario (reusables, en `app/components/`)
+
+- **`SelectField.vue`**: select custom (dropdown propio, no nativo). API `v-model` + `options`
+  (array de strings o `{value, label}`). Usar SIEMPRE en vez de `<select>` nativo.
+- **`DateField.vue`**: datepicker custom. Guarda ISO `YYYY-MM-DD`, muestra `DD/MM/AAAA`. Usar en
+  vez de `<input type="date">`.
+- **`RubroCombo.vue`**: combobox de rubro (texto libre + sugerencias; crea al vuelo).
+- **`ConfirmDialog.vue`**: modal `<dialog>` nativo para confirmar borrados, con prop `bloqueo`
+  (si tiene texto, deshabilita el botón y explica por qué no se puede eliminar).
+- **Campos opcionales**: marcar SIEMPRE con `<span class="label-opt">(opcional)</span>` en el label
+  (no con placeholder "Opcional"). Clase en main.css.
 
 ## Sistema de diseño (todo en `app/assets/css/main.css`)
 
@@ -79,11 +97,22 @@ Fuente única de verdad. Las pages usan clases compartidas + `<style scoped>` m�
 ## Hecho (resuelto)
 
 - Supabase conectado, auth real, todo persiste (clientes/proveedores/obras/items/caja/retiros)
-- CRUD completo: alta + edición + borrado con guarda de integridad (cliente sin obras; proveedor
-  sin items/movimientos; obra vacía). Borrado con `ConfirmDialog` (modal `<dialog>` nativo)
+- CRUD completo con edición + borrado guardado (cliente sin obras; proveedor sin items/movimientos;
+  obra vacía). Items, movimientos de caja y retiros: editar/borrar inline en `[id]/index.vue`
 - D2 resuelto: rubro = FK a `rubros`, con creación al vuelo (`resolverRubroId` en useDb)
-- TC por transacción (sin "valor dólar por obra"): el dólar se carga al cobrar/mover en USD
-- Listas de clientes y proveedores con búsqueda + orden por columna
+- TC por transacción (sin "valor dólar por obra"): el dólar se carga al cobrar/mover en USD.
+  USD = siempre efectivo (oculta el medio de pago)
+- Listas con búsqueda + orden por columna
+- **Control alineado al Excel, cierra en 0** (migrations 014-018). Reglas contables clave:
+  - `saldo_caja` = SUMA de movimientos (no "último acumulado"; evita bug de empate de fechas)
+  - **honorarios a retirar = solo el 15%**, NO incluye adicional
+  - **adicional = reserva** (cubre IVA de proveedores grandes), resta en el Control, no es ganancia
+  - Identidad: `saldo_a_cobrar + saldo_caja − deuda − honorarios_15 − adicional = 0`
+- Tab **Proveedores** en la obra: deuda por proveedor (presupuestado − pagado). Debo negativo
+  (se pagó de más → pedirle al cliente) va resaltado en rojo
+- Presupuesto: total de Valor final en footer; toggle "Proveedor en PDF" (UI siempre muestra
+  proveedor; el switch solo controla si sale en el PDF exportado)
+- URLs de obra por slug + PDF nombrado por slug (ver arriba)
 
 ## Pendiente (no hecho)
 

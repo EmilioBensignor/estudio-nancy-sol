@@ -14,6 +14,11 @@ const form = reactive({
   splitSol: '50',
 })
 
+const opcionesEstado = [
+  { value: 'activa', label: 'Activa' },
+  { value: 'finalizada', label: 'Finalizada' },
+]
+
 const errors = reactive({})
 const guardando = ref(false)
 const errorGuardar = ref('')
@@ -51,7 +56,7 @@ async function abrirModal() {
   bloqueo.value = ''
   modalAbierto.value = true
   try {
-    const usos = await contarUsosDeObra(obraId)
+    const usos = await contarUsosDeObra(obra.value.id)
     if (usos > 0) {
       bloqueo.value = `No se puede eliminar: la obra tiene ${usos} registro${usos === 1 ? '' : 's'} cargado${usos === 1 ? '' : 's'} (caja, presupuesto o retiros).`
     }
@@ -66,7 +71,7 @@ async function eliminar() {
   eliminando.value = true
   errorEliminar.value = ''
   try {
-    await eliminarObra(obraId)
+    await eliminarObra(obra.value.id)
     navigateTo('/')
   } catch (e) {
     errorEliminar.value = 'No se pudo eliminar la obra. Reintentá.'
@@ -86,14 +91,14 @@ async function guardar() {
   guardando.value = true
   errorGuardar.value = ''
   try {
-    await actualizarObra(obraId, {
+    await actualizarObra(obra.value.id, {
       nombre_direccion: form.nombre.trim(),
       estado: form.estado,
       honorario_override: form.honorario ? Number(form.honorario) / 100 : null,
       split_nancy_override: form.splitNancy ? Number(form.splitNancy) / 100 : null,
       split_sol_override: form.splitSol ? Number(form.splitSol) / 100 : null,
     })
-    navigateTo(`/obras/${obraId}`)
+    navigateTo(`/obras/${obra.value.slug || obra.value.id}`)
   } catch (e) {
     errorGuardar.value = 'No se pudieron guardar los cambios. Reintentá.'
     console.error(e)
@@ -105,7 +110,7 @@ async function guardar() {
 <template>
   <div class="shell">
     <header class="page-header">
-      <NuxtLink :to="`/obras/${obra.id}`" class="back">
+      <NuxtLink :to="`/obras/${obra.slug || obra.id}`" class="back">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <path d="M9 2L4 7l5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
@@ -134,10 +139,7 @@ async function guardar() {
           </div>
           <div class="field-group">
             <label class="label">Estado</label>
-            <select v-model="form.estado" class="field">
-              <option value="activa">Activa</option>
-              <option value="finalizada">Finalizada</option>
-            </select>
+            <SelectField v-model="form.estado" :options="opcionesEstado" />
           </div>
         </div>
       </section>
@@ -185,7 +187,7 @@ async function guardar() {
       <div class="form-actions">
         <button type="button" class="btn btn--danger-ghost" @click="abrirModal">Eliminar obra</button>
         <div class="form-actions__right">
-          <NuxtLink :to="`/obras/${obra.id}`" class="btn btn--ghost">Cancelar</NuxtLink>
+          <NuxtLink :to="`/obras/${obra.slug || obra.id}`" class="btn btn--ghost">Cancelar</NuxtLink>
           <button type="submit" class="btn btn--primary" :disabled="guardando">{{ guardando ? 'Guardando…' : 'Guardar cambios' }}</button>
         </div>
       </div>

@@ -3,13 +3,16 @@ import { fmtArs as fmt, fmtUsd, fmtFecha } from '~/composables/useFormato'
 
 const route = useRoute()
 const db = useDb()
-const obraId = route.params.id
+// La URL puede traer slug o UUID. Tras cargar la obra, obraId pasa a ser el UUID real
+// (todas las queries de caja/items/retiros filtran por obra_id real).
+let obraId = route.params.id
 
 // Tabs internos: Caja / Presupuesto / Retiros
 const tab = ref('caja')
 const tabs = [
   { id: 'caja', label: 'Caja' },
   { id: 'presupuesto', label: 'Presupuesto' },
+  { id: 'deuda', label: 'Proveedores' },
   { id: 'retiros', label: 'Retiros' },
 ]
 
@@ -25,6 +28,7 @@ const cargando = ref(true)
 
 async function cargarObra() {
   obra.value = await db.getObra(obraId)
+  obraId = obra.value.id
 }
 async function cargarControl() {
   controlRaw.value = await db.getControl(obraId)
@@ -89,6 +93,19 @@ function descMov(m) {
 }
 
 const fechaHoy = new Date().toISOString().split('T')[0]
+
+// Options para los SelectField
+const opcionesTipo = [
+  { value: 'cobro_cliente', label: 'Cobro del cliente' },
+  { value: 'pago_proveedor', label: 'Pago a proveedor' },
+]
+const opcionesMedio = [
+  { value: 'transferencia', label: 'Transferencia' },
+  { value: 'efectivo', label: 'Efectivo' },
+]
+const opcionesProveedor = computed(() => proveedores.value.map((p) => ({ value: p.id, label: p.nombre })))
+const opcionesProveedorOpt = computed(() => [{ value: '', label: 'Sin asignar' }, ...opcionesProveedor.value])
+
 const formMovVacio = () => ({ tipo: '', proveedorId: '', monto: '', moneda: 'ARS', tcManual: '', medio: '', fecha: fechaHoy })
 const formMov = reactive(formMovVacio())
 const esPago = computed(() => formMov.tipo === 'pago_proveedor')
@@ -98,7 +115,11 @@ const guardandoMov = ref(false)
 const editandoId = ref(null)
 const enDolares = computed({
   get: () => formMov.moneda === 'USD',
-  set: (v) => { formMov.moneda = v ? 'USD' : 'ARS' },
+  set: (v) => {
+    formMov.moneda = v ? 'USD' : 'ARS'
+    // USD siempre es efectivo: fijar el medio y limpiar su error.
+    if (v) { formMov.medio = 'efectivo'; delete errMov.medio }
+  },
 })
 
 // TC efectivo del form: ARS=1; USD=valor del dólar ingresado para ese cobro.
@@ -150,7 +171,7 @@ async function agregarMovimiento() {
   if (esPago.value && !formMov.proveedorId) errMov.proveedor = 'Elegí el proveedor.'
   if (!formMov.monto || Number(formMov.monto) <= 0) errMov.monto = 'Ingresá un monto mayor a cero.'
   if (!formMov.fecha) errMov.fecha = 'Elegí la fecha.'
-  if (!formMov.medio) errMov.medio = 'Elegí el medio de pago.'
+  if (!enDolares.value && !formMov.medio) errMov.medio = 'Elegí el medio de pago.'
   const tc = tcFormMov()
   if (tc == null) errMov.tcManual = 'Ingresá el valor del dólar.'
   if (Object.keys(errMov).length) return
@@ -215,11 +236,41 @@ const itemsOrdenados = computed(() =>
 // Presupuesto: totales desde las columnas derivadas de la view
 const totalPresupuesto = computed(() => items.value.reduce((a, i) => a + Number(i.total_ars || 0), 0))
 const totalHonorarios = computed(() => items.value.reduce((a, i) => a + Number(i.honorario_ars || 0), 0))
+const totalValorFinal = computed(() => items.value.reduce((a, i) => a + Number(i.valor_final_ars || 0), 0))
+
+// Deuda por proveedor: presupuestado (costo de sus items) - pagado (movimientos a ese proveedor).
+// Agrupa por nombre; muestra solo proveedores con presupuesto o pagos.
+const deudaPorProveedor = computed(() => {
+  const map = new Map()
+  const get = (nombre) => {
+    if (!map.has(nombre)) map.set(nombre, { nombre, presupuestado: 0, pagado: 0 })
+    return map.get(nombre)
+  }
+  for (const it of items.value) {
+    const nombre = it.proveedor?.nombre
+    if (!nombre) continue
+    get(nombre).presupuestado += Number(it.valor_proveedor_ars || 0)
+  }
+  for (const m of movimientos.value) {
+    if (m.tipo !== 'pago_proveedor') continue
+    const nombre = m.proveedor?.nombre
+    if (!nombre) continue
+    get(nombre).pagado += Number(m.monto) * Number(m.tipo_cambio)
+  }
+  return [...map.values()]
+    .map((p) => ({ ...p, debo: p.presupuestado - p.pagado }))
+    .sort((a, b) => b.debo - a.debo)
+})
+const deudaTotal = computed(() => deudaPorProveedor.value.reduce((a, p) => a + p.presupuestado, 0))
+const pagadoTotal = computed(() => deudaPorProveedor.value.reduce((a, p) => a + p.pagado, 0))
 
 const itemFormOpen = ref(false)
+const editandoItemId = ref(null)
+// Si el presupuesto exportado/visualizado muestra la columna proveedor.
+const mostrarProveedor = ref(false)
 // costo = valor proveedor [interno]; adicional = sobreprecio sobre el costo (switch);
 // valor presupuesto = costo + adicional; valor final = lo que paga el cliente (default = presupuesto).
-const formItemVacio = () => ({ rubro: '', detalle: '', costo: '', adicionalOn: false, adicional: '', valor: '', notas: '' })
+const formItemVacio = () => ({ proveedorId: '', rubro: '', detalle: '', costo: '', adicionalOn: false, adicional: '', valor: '', notas: '' })
 const formItem = reactive(formItemVacio())
 const guardandoItem = ref(false)
 const errItem = reactive({})
@@ -252,6 +303,47 @@ function onValorInput() {
   delete errItem.valor
 }
 
+// Al elegir proveedor, autocompletar el rubro si el proveedor tiene uno.
+function onProveedorItem() {
+  const p = proveedores.value.find((x) => x.id === formItem.proveedorId)
+  if (p?.rubro?.nombre) {
+    formItem.rubro = p.rubro.nombre
+    delete errItem.rubro
+  }
+}
+
+function abrirAltaItem() {
+  editandoItemId.value = null
+  Object.assign(formItem, formItemVacio())
+  valorEditado.value = false
+  Object.keys(errItem).forEach((k) => delete errItem[k])
+  itemFormOpen.value = true
+}
+function editarItem(it) {
+  editandoItemId.value = it.id
+  const tieneAdicional = Number(it.valor_presupuesto) > Number(it.valor_proveedor)
+  Object.assign(formItem, {
+    proveedorId: it.proveedor_id || '',
+    rubro: it.rubro?.nombre || '',
+    detalle: it.detalle || '',
+    costo: String(it.valor_proveedor ?? ''),
+    adicionalOn: tieneAdicional,
+    adicional: tieneAdicional ? String(Number(it.valor_presupuesto) - Number(it.valor_proveedor)) : '',
+    valor: String(it.valor_final ?? ''),
+    notas: it.notas || '',
+  })
+  valorEditado.value = true
+  Object.keys(errItem).forEach((k) => delete errItem[k])
+  itemFormOpen.value = true
+}
+function cancelarItem() {
+  editandoItemId.value = null
+  Object.assign(formItem, formItemVacio())
+  valorEditado.value = false
+  Object.keys(errItem).forEach((k) => delete errItem[k])
+  itemFormOpen.value = false
+}
+
 async function agregarItem() {
   Object.keys(errItem).forEach((k) => delete errItem[k])
   if (!formItem.rubro.trim()) errItem.rubro = 'Elegí o escribí un rubro.'
@@ -263,12 +355,10 @@ async function agregarItem() {
     const rubroId = await db.resolverRubroId(formItem.rubro)
     const costo = Number(formItem.costo) || 0
     const final = Number(formItem.valor)
-    // presupuesto = costo + adicional; si no hay adicional, queda igual al costo
     const presupuesto = presupuestoItem.value || final
-    await db.crearItem({
-      obra_id: obraId,
-      fecha: fechaHoy,
+    const payload = {
       rubro_id: rubroId,
+      proveedor_id: formItem.proveedorId || null,
       detalle: formItem.detalle.trim() || null,
       valor_proveedor: costo,
       valor_presupuesto: presupuesto,
@@ -276,7 +366,13 @@ async function agregarItem() {
       notas: formItem.notas.trim() || null,
       moneda: 'ARS',
       moneda_proveedor: 'ARS',
-    })
+    }
+    if (editandoItemId.value) {
+      await db.actualizarItem(editandoItemId.value, payload)
+    } else {
+      await db.crearItem({ obra_id: obraId, fecha: fechaHoy, ...payload })
+    }
+    editandoItemId.value = null
     Object.assign(formItem, formItemVacio())
     valorEditado.value = false
     itemFormOpen.value = false
@@ -286,6 +382,21 @@ async function agregarItem() {
     console.error(e)
   } finally {
     guardandoItem.value = false
+  }
+}
+
+const borrandoItemId = ref(null)
+async function borrarItem(it) {
+  if (!confirm('¿Borrar este ítem? No se puede deshacer.')) return
+  borrandoItemId.value = it.id
+  try {
+    await db.eliminarItem(it.id)
+    if (editandoItemId.value === it.id) cancelarItem()
+    await Promise.all([cargarItems(), cargarControl(), cargarConvergencia()])
+  } catch (e) {
+    console.error(e)
+  } finally {
+    borrandoItemId.value = null
   }
 }
 
@@ -313,8 +424,10 @@ const socioAtras = computed(() =>
 
 const retiroFormOpen = ref(false)
 const guardandoRetiro = ref(false)
+const editandoRetiroId = ref(null)
 // Total a retirar + reparto 50/50 editable: al tipear el total, prellena mitad y mitad.
-const formRetiro = reactive({ total: '', nancy: '', sol: '', fecha: fechaHoy })
+const formRetiroVacio = () => ({ total: '', nancy: '', sol: '', fecha: fechaHoy })
+const formRetiro = reactive(formRetiroVacio())
 function repartir5050() {
   const t = Number(formRetiro.total) || 0
   const mitad = Math.round((t / 2) * 100) / 100
@@ -323,6 +436,33 @@ function repartir5050() {
   delete errRetiro.monto
 }
 const errRetiro = reactive({})
+
+function abrirAltaRetiro() {
+  editandoRetiroId.value = null
+  Object.assign(formRetiro, formRetiroVacio())
+  Object.keys(errRetiro).forEach((k) => delete errRetiro[k])
+  retiroFormOpen.value = true
+}
+function editarRetiro(r) {
+  editandoRetiroId.value = r.id
+  const nancy = Number(r.monto_nancy) || 0
+  const sol = Number(r.monto_sol) || 0
+  Object.assign(formRetiro, {
+    total: String(nancy + sol),
+    nancy: String(nancy),
+    sol: String(sol),
+    fecha: r.fecha,
+  })
+  Object.keys(errRetiro).forEach((k) => delete errRetiro[k])
+  retiroFormOpen.value = true
+}
+function cancelarRetiro() {
+  editandoRetiroId.value = null
+  Object.assign(formRetiro, formRetiroVacio())
+  Object.keys(errRetiro).forEach((k) => delete errRetiro[k])
+  retiroFormOpen.value = false
+}
+
 async function registrarRetiro() {
   Object.keys(errRetiro).forEach((k) => delete errRetiro[k])
   const totalNancy = Number(formRetiro.nancy) || 0
@@ -333,15 +473,20 @@ async function registrarRetiro() {
 
   guardandoRetiro.value = true
   try {
-    await db.crearRetiro({
-      obra_id: obraId,
+    const payload = {
       fecha: formRetiro.fecha,
       monto_nancy: totalNancy,
       monto_sol: totalSol,
       moneda: 'ARS',
       tipo_cambio: 1,
-    })
-    Object.assign(formRetiro, { total: '', nancy: '', sol: '', fecha: fechaHoy })
+    }
+    if (editandoRetiroId.value) {
+      await db.actualizarRetiro(editandoRetiroId.value, payload)
+    } else {
+      await db.crearRetiro({ obra_id: obraId, ...payload })
+    }
+    editandoRetiroId.value = null
+    Object.assign(formRetiro, formRetiroVacio())
     retiroFormOpen.value = false
     await Promise.all([cargarRetiros(), cargarConvergencia(), cargarControl(), cargarMovimientos()])
   } catch (e) {
@@ -352,6 +497,21 @@ async function registrarRetiro() {
   }
 }
 
+const borrandoRetiroId = ref(null)
+async function borrarRetiro(r) {
+  if (!confirm('¿Borrar este retiro? No se puede deshacer.')) return
+  borrandoRetiroId.value = r.id
+  try {
+    await db.eliminarRetiro(r.id)
+    if (editandoRetiroId.value === r.id) cancelarRetiro()
+    await Promise.all([cargarRetiros(), cargarConvergencia(), cargarControl(), cargarMovimientos()])
+  } catch (e) {
+    console.error(e)
+  } finally {
+    borrandoRetiroId.value = null
+  }
+}
+
 // Exportar presupuesto: arma el documento (oculto) y dispara el diálogo de guardar PDF
 // del navegador directo, sin pantalla intermedia. SOLO columnas F–K (nunca costo/ganancia).
 const itemsExport = ref([])
@@ -359,13 +519,18 @@ const exportando = ref(false)
 async function exportar() {
   if (exportando.value) return
   exportando.value = true
+  // El navegador usa document.title como nombre sugerido del PDF. Lo seteo al slug
+  // de la obra (Ramsay-1945) y lo restauro al volver de imprimir.
+  const tituloOriginal = document.title
   try {
     itemsExport.value = await db.getPresupuestoCliente(obraId)
+    document.title = obra.value.slug || obra.value.nombre_direccion || 'presupuesto'
     await nextTick()
     window.print()
   } catch (e) {
     console.error(e)
   } finally {
+    document.title = tituloOriginal
     exportando.value = false
   }
 }
@@ -407,7 +572,7 @@ function cambiarTab(id) {
           </template>
         </div>
         <div class="page-header__actions">
-          <NuxtLink :to="'/obras/' + obra.id + '/configuracion'" class="btn btn--secondary">Configuración</NuxtLink>
+          <NuxtLink :to="'/obras/' + (obra.slug || obra.id) + '/configuracion'" class="btn btn--secondary">Configuración</NuxtLink>
           <button type="button" class="btn btn--primary" @click="exportar">Exportar</button>
         </div>
       </div>
@@ -472,19 +637,12 @@ function cambiarTab(id) {
         <form v-if="cajaFormOpen" class="mov-form" @submit.prevent="agregarMovimiento">
           <div class="field-group col-tipo">
             <label class="label">Tipo</label>
-            <select v-model="formMov.tipo" class="field" :class="{ 'field--error': errMov.tipo }" @change="delete errMov.tipo">
-              <option value="" disabled>Seleccioná tipo</option>
-              <option value="cobro_cliente">Cobro del cliente</option>
-              <option value="pago_proveedor">Pago a proveedor</option>
-            </select>
+            <SelectField v-model="formMov.tipo" :options="opcionesTipo" placeholder="Seleccioná tipo" :invalid="!!errMov.tipo" @change="delete errMov.tipo" />
             <span v-if="errMov.tipo" class="field-error">{{ errMov.tipo }}</span>
           </div>
           <div v-if="esPago" class="field-group col-prov">
             <label class="label">Proveedor</label>
-            <select v-model="formMov.proveedorId" class="field" :class="{ 'field--error': errMov.proveedor }" @change="delete errMov.proveedor">
-              <option value="" disabled>Seleccioná proveedor</option>
-              <option v-for="p in proveedores" :key="p.id" :value="p.id">{{ p.nombre }}</option>
-            </select>
+            <SelectField v-model="formMov.proveedorId" :options="opcionesProveedor" placeholder="Seleccioná proveedor" :invalid="!!errMov.proveedor" @change="delete errMov.proveedor" />
             <span v-if="errMov.proveedor" class="field-error">{{ errMov.proveedor }}</span>
           </div>
           <div class="field-group col-monto">
@@ -497,24 +655,20 @@ function cambiarTab(id) {
             </div>
             <span v-if="errMov.monto" class="field-error">{{ errMov.monto }}</span>
           </div>
-          <div v-if="enDolares" class="field-group col-dolar">
+          <div class="field-group col-fecha">
+            <label class="label">Fecha</label>
+            <DateField v-model="formMov.fecha" :invalid="!!errMov.fecha" @update:model-value="delete errMov.fecha" />
+            <span v-if="errMov.fecha" class="field-error">{{ errMov.fecha }}</span>
+          </div>
+          <div v-if="enDolares" class="field-group col-medio">
             <label class="label">Valor dólar</label>
             <input v-model="formMov.tcManual" type="number" class="field field--num" :class="{ 'field--error': errMov.tcManual }" placeholder="Ej: 1200" @input="delete errMov.tcManual" />
             <span v-if="errMov.tcManual" class="field-error">{{ errMov.tcManual }}</span>
             <span v-else-if="equivPesos != null" class="field-hint">= {{ fmt(equivPesos) }}</span>
           </div>
-          <div class="field-group col-fecha">
-            <label class="label">Fecha</label>
-            <input v-model="formMov.fecha" type="date" class="field" :class="{ 'field--error': errMov.fecha }" @input="delete errMov.fecha" />
-            <span v-if="errMov.fecha" class="field-error">{{ errMov.fecha }}</span>
-          </div>
-          <div class="field-group col-medio">
+          <div v-else class="field-group col-medio">
             <label class="label">Medio de pago</label>
-            <select v-model="formMov.medio" class="field" :class="{ 'field--error': errMov.medio }" @change="delete errMov.medio">
-              <option value="" disabled>Seleccioná medio</option>
-              <option value="transferencia">Transferencia</option>
-              <option value="efectivo">Efectivo</option>
-            </select>
+            <SelectField v-model="formMov.medio" :options="opcionesMedio" placeholder="Seleccioná medio" :invalid="!!errMov.medio" @change="delete errMov.medio" />
             <span v-if="errMov.medio" class="field-error">{{ errMov.medio }}</span>
           </div>
           <div class="field-group col-submit">
@@ -523,14 +677,14 @@ function cambiarTab(id) {
         </form>
 
         <p v-if="!movimientos.length" class="estado-msg">Todavía no hay movimientos en esta obra.</p>
-        <table v-else class="table">
+        <table v-else class="table table--caja">
           <thead>
             <tr>
-              <th style="width: 92px">Fecha</th>
+              <th>Fecha</th>
               <th>Detalle</th>
-              <th class="num" style="width: 150px">Monto</th>
-              <th class="num" style="width: 150px">Saldo</th>
-              <th style="width: 88px"></th>
+              <th class="num">Monto</th>
+              <th class="num">Saldo</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -549,6 +703,7 @@ function cambiarTab(id) {
               </td>
               <td class="num monto cell-saldo">{{ fmt(m.saldo_acumulado_ars) }}</td>
               <td class="cell-acciones">
+                <div class="cell-acciones__inner">
                 <button type="button" class="icon-btn" title="Editar" @click="editarMov(m)">
                   <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
                     <path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10l7.5-7.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
@@ -559,6 +714,7 @@ function cambiarTab(id) {
                     <path d="M3 4h10M6.5 4V3h3v1M5 4l.5 9h5L11 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
                   </svg>
                 </button>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -570,26 +726,34 @@ function cambiarTab(id) {
       <section class="panel">
         <div class="panel__head split">
           <span class="eyebrow">Ítems del presupuesto</span>
-          <button class="btn btn--primary btn--sm" @click="itemFormOpen = !itemFormOpen">
-            <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-              <path v-if="itemFormOpen" d="M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-              <path v-else d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-            </svg>
-            Agregar ítem
-          </button>
+          <div class="panel__head-actions">
+            <div class="toggle-prov">
+              <span>Proveedor en PDF</span>
+              <button type="button" class="switch" :class="{ 'switch--on': mostrarProveedor }" role="switch" :aria-checked="mostrarProveedor" @click="mostrarProveedor = !mostrarProveedor">
+                <span class="switch__knob"></span>
+              </button>
+            </div>
+            <button class="btn btn--primary btn--sm" @click="itemFormOpen ? cancelarItem() : abrirAltaItem()">
+              <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+                <path v-if="itemFormOpen" d="M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                <path v-else d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+              </svg>
+              {{ itemFormOpen ? 'Cerrar' : 'Agregar ítem' }}
+            </button>
+          </div>
         </div>
 
         <form v-if="itemFormOpen" class="item-form" @submit.prevent="agregarItem">
-          <!-- Qué es -->
+          <!-- Proveedor (autocompleta rubro) + rubro -->
           <div class="item-form__row item-form__row--2">
+            <div class="field-group">
+              <label class="label">Proveedor <span class="label-opt">(opcional)</span></label>
+              <SelectField v-model="formItem.proveedorId" :options="opcionesProveedorOpt" placeholder="Sin asignar" @change="onProveedorItem" />
+            </div>
             <div class="field-group">
               <label class="label">Rubro</label>
               <RubroCombo v-model="formItem.rubro" placeholder="Ej: Albañilería" :invalid="!!errItem.rubro" @update:model-value="delete errItem.rubro" />
               <span v-if="errItem.rubro" class="field-error">{{ errItem.rubro }}</span>
-            </div>
-            <div class="field-group">
-              <label class="label">Detalle <span class="label-opt">(opcional)</span></label>
-              <input v-model="formItem.detalle" type="text" class="field" placeholder="Ej: Demolición y contrapiso" />
             </div>
           </div>
 
@@ -628,15 +792,20 @@ function cambiarTab(id) {
             </p>
           </fieldset>
 
-          <div class="item-form__row">
+          <!-- Detalle + notas -->
+          <div class="item-form__row item-form__row--2">
             <div class="field-group">
-              <label class="label">Notas</label>
-              <input v-model="formItem.notas" type="text" class="field" placeholder="Opcional, interno" />
+              <label class="label">Detalle <span class="label-opt">(opcional)</span></label>
+              <input v-model="formItem.detalle" type="text" class="field" placeholder="Ej: Demolición y contrapiso" />
+            </div>
+            <div class="field-group">
+              <label class="label">Notas <span class="label-opt">(opcional, interno)</span></label>
+              <input v-model="formItem.notas" type="text" class="field" placeholder="Interno" />
             </div>
           </div>
 
           <div class="item-form__actions">
-            <button type="submit" class="btn btn--primary" :disabled="guardandoItem">{{ guardandoItem ? 'Guardando…' : 'Agregar ítem' }}</button>
+            <button type="submit" class="btn btn--primary" :disabled="guardandoItem">{{ guardandoItem ? 'Guardando…' : (editandoItemId ? 'Guardar cambios' : 'Agregar ítem') }}</button>
           </div>
         </form>
 
@@ -644,27 +813,87 @@ function cambiarTab(id) {
         <table v-else class="table">
           <thead>
             <tr>
-              <th style="width: 160px">Rubro</th>
+              <th style="width: 150px">Rubro</th>
+              <th style="width: 150px">Proveedor</th>
               <th>Detalle</th>
-              <th class="num" style="width: 150px">Valor final</th>
-              <th class="num" style="width: 150px">Honorario</th>
-              <th class="num" style="width: 160px">Total</th>
+              <th class="num" style="width: 130px">Valor final</th>
+              <th class="num" style="width: 140px; white-space: nowrap">Honorario 15%</th>
+              <th class="num" style="width: 140px">Total</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="it in itemsOrdenados" :key="it.id">
+            <tr v-for="it in itemsOrdenados" :key="it.id" :class="{ 'row--editando': editandoItemId === it.id }">
               <td class="cell-strong">{{ it.rubro?.nombre || '—' }}</td>
+              <td class="cell-muted">{{ it.proveedor?.nombre || '—' }}</td>
               <td class="cell-muted">{{ it.detalle || '—' }}</td>
               <td class="num monto">{{ fmt(it.valor_final_ars) }}</td>
               <td class="num monto monto--accent">{{ fmt(it.honorario_ars) }}</td>
               <td class="num monto cell-saldo">{{ fmt(it.total_ars) }}</td>
+              <td class="cell-acciones">
+                <div class="cell-acciones__inner">
+                  <button type="button" class="icon-btn" title="Editar" @click="editarItem(it)">
+                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                      <path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10l7.5-7.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
+                    </svg>
+                  </button>
+                  <button type="button" class="icon-btn icon-btn--danger" title="Borrar" :disabled="borrandoItemId === it.id" @click="borrarItem(it)">
+                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                      <path d="M3 4h10M6.5 4V3h3v1M5 4l.5 9h5L11 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                  </button>
+                </div>
+              </td>
             </tr>
           </tbody>
           <tfoot>
             <tr>
               <td colspan="3" class="cell-total-label">Total presupuesto</td>
+              <td class="num monto cell-total">{{ fmt(totalValorFinal) }}</td>
               <td class="num monto monto--accent">{{ fmt(totalHonorarios) }}</td>
               <td class="num monto cell-total">{{ fmt(totalPresupuesto) }}</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </section>
+    </div>
+
+    <div v-else-if="tab === 'deuda'" class="tabpanel">
+      <section class="panel">
+        <div class="panel__head split">
+          <span class="eyebrow">Proveedores</span>
+          <div class="reparto__stats">
+            <span class="reparto__stat">Presupuestado <strong class="monto">{{ fmt(deudaTotal) }}</strong></span>
+            <span class="reparto__stat">Pagado <strong class="monto monto--pos">{{ fmt(pagadoTotal) }}</strong></span>
+            <span class="reparto__stat">Debo <strong class="monto monto--neg">{{ fmt(deudaTotal - pagadoTotal) }}</strong></span>
+          </div>
+        </div>
+
+        <p v-if="!deudaPorProveedor.length" class="estado-msg">Todavía no hay proveedores con presupuesto o pagos.</p>
+        <table v-else class="table table--deuda">
+          <thead>
+            <tr>
+              <th>Proveedor</th>
+              <th class="num">Presupuestado</th>
+              <th class="num">Pagado</th>
+              <th class="num">Debo</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="p in deudaPorProveedor" :key="p.nombre">
+              <td class="cell-strong">{{ p.nombre }}</td>
+              <td class="num monto">{{ fmt(p.presupuestado) }}</td>
+              <td class="num monto monto--pos">{{ fmt(p.pagado) }}</td>
+              <td class="num monto" :class="{ 'debo-exceso': p.debo < 0 }">{{ fmt(p.debo) }}</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td class="cell-total-label">Total</td>
+              <td class="num monto">{{ fmt(deudaTotal) }}</td>
+              <td class="num monto monto--pos">{{ fmt(pagadoTotal) }}</td>
+              <td class="num monto cell-total">{{ fmt(deudaTotal - pagadoTotal) }}</td>
             </tr>
           </tfoot>
         </table>
@@ -707,12 +936,12 @@ function cambiarTab(id) {
       <section class="panel">
         <div class="panel__head split">
           <span class="eyebrow">Retiros</span>
-          <button class="btn btn--primary btn--sm" @click="retiroFormOpen = !retiroFormOpen">
+          <button class="btn btn--primary btn--sm" @click="retiroFormOpen ? cancelarRetiro() : abrirAltaRetiro()">
             <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
               <path v-if="retiroFormOpen" d="M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
               <path v-else d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
             </svg>
-            Registrar retiro
+            {{ retiroFormOpen ? 'Cerrar' : 'Registrar retiro' }}
           </button>
         </div>
 
@@ -724,7 +953,7 @@ function cambiarTab(id) {
           </div>
           <div class="field-group">
             <label class="label">Fecha</label>
-            <input v-model="formRetiro.fecha" type="date" class="field" :class="{ 'field--error': errRetiro.fecha }" @input="delete errRetiro.fecha" />
+            <DateField v-model="formRetiro.fecha" :invalid="!!errRetiro.fecha" @update:model-value="delete errRetiro.fecha" />
             <span v-if="errRetiro.fecha" class="field-error">{{ errRetiro.fecha }}</span>
           </div>
           <div class="field-group">
@@ -737,7 +966,7 @@ function cambiarTab(id) {
           </div>
           <span v-if="errRetiro.monto" class="field-error field-error--full">{{ errRetiro.monto }}</span>
           <div class="field-group col-submit">
-            <button type="submit" class="btn btn--primary" :disabled="guardandoRetiro">{{ guardandoRetiro ? 'Guardando…' : 'Registrar retiro' }}</button>
+            <button type="submit" class="btn btn--primary" :disabled="guardandoRetiro">{{ guardandoRetiro ? 'Guardando…' : (editandoRetiroId ? 'Guardar cambios' : 'Registrar retiro') }}</button>
           </div>
         </form>
 
@@ -749,14 +978,29 @@ function cambiarTab(id) {
               <th class="num">Nancy</th>
               <th class="num">Solana</th>
               <th class="num" style="width: 150px">Total</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="r in retiros" :key="r.id">
+            <tr v-for="r in retiros" :key="r.id" :class="{ 'row--editando': editandoRetiroId === r.id }">
               <td class="cell-date">{{ fmtFecha(r.fecha) }}</td>
               <td class="num monto">{{ fmt(Number(r.monto_nancy) * Number(r.tipo_cambio)) }}</td>
               <td class="num monto">{{ fmt(Number(r.monto_sol) * Number(r.tipo_cambio)) }}</td>
               <td class="num monto cell-saldo">{{ fmt((Number(r.monto_nancy) + Number(r.monto_sol)) * Number(r.tipo_cambio)) }}</td>
+              <td class="cell-acciones">
+                <div class="cell-acciones__inner">
+                  <button type="button" class="icon-btn" title="Editar" @click="editarRetiro(r)">
+                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                      <path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10l7.5-7.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
+                    </svg>
+                  </button>
+                  <button type="button" class="icon-btn icon-btn--danger" title="Borrar" :disabled="borrandoRetiroId === r.id" @click="borrarRetiro(r)">
+                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                      <path d="M3 4h10M6.5 4V3h3v1M5 4l.5 9h5L11 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                  </button>
+                </div>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -765,7 +1009,7 @@ function cambiarTab(id) {
 
     <!-- Documento del presupuesto: oculto en pantalla, solo aparece al imprimir (Exportar) -->
     <div class="solo-print">
-      <DocumentoPresupuesto :obra="obra" :items="itemsExport" />
+      <DocumentoPresupuesto :obra="obra" :items="itemsExport" :mostrar-proveedor="mostrarProveedor" />
     </div>
   </div>
 </template>
@@ -812,7 +1056,8 @@ function cambiarTab(id) {
 .field-hint { font-size: 13px; color: var(--ink-muted); margin-top: 4px; }
 
 /* Acciones por fila (editar / borrar) */
-.cell-acciones { display: flex; gap: 4px; }
+.cell-acciones { width: 1%; white-space: nowrap; text-align: right; }
+.cell-acciones__inner { display: inline-flex; gap: 4px; }
 .icon-btn {
   display: flex; align-items: center; justify-content: center;
   background: transparent; border: none; color: var(--ink-muted);
@@ -867,6 +1112,8 @@ function cambiarTab(id) {
 .reparto__note--ok { background: var(--positive-bg); color: var(--positive); }
 
 .panel__head.split { display: flex; align-items: center; justify-content: space-between; }
+.panel__head-actions { display: flex; align-items: center; gap: 16px; }
+.toggle-prov { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-muted); user-select: none; }
 .btn--sm { height: 36px; padding: 0 14px; font-size: 14px; }
 
 .mov-form {
@@ -933,6 +1180,9 @@ function cambiarTab(id) {
 .item-form__row { display: grid; grid-template-columns: 1fr; gap: 16px 20px; }
 .item-form__row--2 { grid-template-columns: 1fr 1fr; }
 
+/* Debo negativo = se pagó de más, hay que pedirle al cliente. Resaltado fuerte. */
+.debo-exceso { color: var(--negative); font-weight: 700; }
+
 /* La cuenta: costo + adicional = valor final, en una tira con operadores */
 .item-form__money {
   display: flex;
@@ -967,7 +1217,6 @@ function cambiarTab(id) {
 }
 .money-note strong { color: var(--ink); font-weight: 600; }
 .item-form__actions { display: flex; justify-content: flex-end; }
-.label-opt { font-weight: 400; color: var(--ink-faint); text-transform: none; letter-spacing: 0; }
 
 .cell-strong { font-weight: 600; color: var(--ink); }
 .cell-muted { color: var(--ink-muted); }

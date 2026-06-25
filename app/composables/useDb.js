@@ -10,7 +10,7 @@ export function useDb() {
     // Trae clientes + sus obras (un cliente puede tener varias)
     const { data, error } = await sb()
       .from('clientes')
-      .select('*, obras(id, nombre_direccion)')
+      .select('*, obras(id, slug, nombre_direccion)')
       .order('created_at', { ascending: false })
     if (error) throw error
     return data
@@ -144,18 +144,42 @@ export function useDb() {
     }))
   }
 
-  async function getObra(id) {
+  // Acepta UUID o slug en la URL. Si parece UUID busca por id, sino por slug.
+  const esUuid = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
+
+  async function getObra(idOrSlug) {
     const { data, error } = await sb()
       .from('obras')
       .select('*, cliente:clientes(id, nombre, email, telefono)')
-      .eq('id', id)
+      .eq(esUuid(idOrSlug) ? 'id' : 'slug', idOrSlug)
       .single()
     if (error) throw error
     return data
   }
 
+  // Convierte un texto a slug url-safe (sin acentos, minúsculas, guiones).
+  function slugify(texto) {
+    return (texto || '')
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+  }
+
+  // Genera un slug único: si 'ramsay-1945' existe, prueba '-2', '-3', etc.
+  async function generarSlugUnico(base) {
+    const raiz = slugify(base) || 'obra'
+    const { data } = await sb().from('obras').select('slug').like('slug', `${raiz}%`)
+    const usados = new Set((data || []).map((o) => o.slug))
+    if (!usados.has(raiz)) return raiz
+    let n = 2
+    while (usados.has(`${raiz}-${n}`)) n++
+    return `${raiz}-${n}`
+  }
+
   async function crearObra(obra) {
-    const { data, error } = await sb().from('obras').insert(obra).select().single()
+    const slug = await generarSlugUnico(obra.nombre_direccion)
+    const { data, error } = await sb().from('obras').insert({ ...obra, slug }).select().single()
     if (error) throw error
     return data
   }
@@ -215,13 +239,24 @@ export function useDb() {
     return data
   }
 
+  async function actualizarItem(id, cambios) {
+    const { data, error } = await sb().from('presupuesto_items').update(cambios).eq('id', id).select().single()
+    if (error) throw error
+    return data
+  }
+
+  async function eliminarItem(id) {
+    const { error } = await sb().from('presupuesto_items').delete().eq('id', id)
+    if (error) throw error
+  }
+
   // Presupuesto para EXPORTAR al cliente: SOLO columnas F–K (rubro, detalle, valores,
   // honorario, total). NUNCA costo de proveedor ni ganancia. Defensa en profundidad:
   // se seleccionan explícitamente solo los campos públicos.
   async function getPresupuestoCliente(obraId) {
     const { data, error } = await sb()
       .from('v_presupuesto_items')
-      .select('id, detalle, valor_presupuesto_ars, valor_final_ars, honorario_ars, total_ars, rubro:rubros(nombre)')
+      .select('id, detalle, valor_presupuesto_ars, valor_final_ars, honorario_ars, total_ars, rubro:rubros(nombre), proveedor:proveedores(nombre)')
       .eq('obra_id', obraId)
       .order('fecha')
     if (error) throw error
@@ -295,6 +330,17 @@ export function useDb() {
     return data
   }
 
+  async function actualizarRetiro(id, cambios) {
+    const { data, error } = await sb().from('retiros').update(cambios).eq('id', id).select().single()
+    if (error) throw error
+    return data
+  }
+
+  async function eliminarRetiro(id) {
+    const { error } = await sb().from('retiros').delete().eq('id', id)
+    if (error) throw error
+  }
+
   // ─── Settings ──────────────────────────────────────────────────────────
   async function getSettings() {
     const { data, error } = await sb().from('settings').select('*').limit(1).maybeSingle()
@@ -307,9 +353,9 @@ export function useDb() {
     getProveedores, getProveedor, crearProveedor, actualizarProveedor, contarUsosDeProveedor, eliminarProveedor,
     getRubros, resolverRubroId,
     getObras, getObra, crearObra, actualizarObra, contarUsosDeObra, eliminarObra, getSaldosObra, getControl,
-    getItems, crearItem, getPresupuestoCliente,
+    getItems, crearItem, actualizarItem, eliminarItem, getPresupuestoCliente,
     getMovimientos, crearMovimiento, actualizarMovimiento, eliminarMovimiento,
-    getRetiros, getConvergencia, crearRetiro,
+    getRetiros, getConvergencia, crearRetiro, actualizarRetiro, eliminarRetiro,
     getSettings,
   }
 }

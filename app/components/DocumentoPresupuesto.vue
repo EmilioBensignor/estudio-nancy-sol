@@ -7,6 +7,7 @@ import { fmtArs as fmt } from '~/composables/useFormato'
 const props = defineProps({
   obra: { type: Object, default: null },
   items: { type: Array, default: () => [] },
+  mostrarProveedor: { type: Boolean, default: false },
 })
 
 const hoy = new Date()
@@ -14,6 +15,7 @@ const fechaEmision = `${String(hoy.getDate()).padStart(2, '0')}/${String(hoy.get
 
 const totalGeneral = computed(() => props.items.reduce((a, i) => a + Number(i.total_ars || 0), 0))
 const totalHonorarios = computed(() => props.items.reduce((a, i) => a + Number(i.honorario_ars || 0), 0))
+const totalValor = computed(() => props.items.reduce((a, i) => a + Number(i.valor_final_ars || 0), 0))
 </script>
 
 <template>
@@ -47,15 +49,17 @@ const totalHonorarios = computed(() => props.items.reduce((a, i) => a + Number(i
       <thead>
         <tr>
           <th class="col-rubro">Rubro</th>
+          <th v-if="mostrarProveedor" class="col-prov">Proveedor</th>
           <th class="col-detalle">Detalle</th>
           <th class="col-num">Valor</th>
-          <th class="col-num">Honorarios</th>
+          <th class="col-num">Honorarios 15%</th>
           <th class="col-num">Total</th>
         </tr>
       </thead>
       <tbody>
         <tr v-for="it in items" :key="it.id">
           <td class="col-rubro">{{ it.rubro?.nombre || '—' }}</td>
+          <td v-if="mostrarProveedor" class="col-prov">{{ it.proveedor?.nombre || '—' }}</td>
           <td class="col-detalle">{{ it.detalle }}</td>
           <td class="col-num mono">{{ fmt(it.valor_final_ars) }}</td>
           <td class="col-num mono">{{ fmt(it.honorario_ars) }}</td>
@@ -64,7 +68,8 @@ const totalHonorarios = computed(() => props.items.reduce((a, i) => a + Number(i
       </tbody>
       <tfoot>
         <tr>
-          <td colspan="3" class="doc__total-label">Total</td>
+          <td :colspan="mostrarProveedor ? 3 : 2" class="doc__total-label">Total</td>
+          <td class="col-num mono doc__total-value">{{ fmt(totalValor) }}</td>
           <td class="col-num mono">{{ fmt(totalHonorarios) }}</td>
           <td class="col-num mono doc__total-value">{{ fmt(totalGeneral) }}</td>
         </tr>
@@ -137,11 +142,14 @@ const totalHonorarios = computed(() => props.items.reduce((a, i) => a + Number(i
   color: #6b6860;
   padding: 0 10px 9px;
   border-bottom: 1px solid #d8d4cc;
+  white-space: nowrap;
 }
 .doc__table td { padding: 12px 10px; border-bottom: 1px solid #ece9e3; vertical-align: top; font-size: 13px; }
 .col-num { text-align: right; color: #45423c; }
-.col-rubro { width: 19%; font-weight: 600; color: #1c1a17; }
-.col-detalle { width: 37%; color: #45423c; }
+.doc__table th.col-num { text-align: right; }
+.col-rubro { width: 17%; font-weight: 600; color: #1c1a17; }
+.col-prov { width: 16%; color: #45423c; }
+.col-detalle { color: #45423c; }
 .col-total { font-weight: 600; color: #1c1a17; }
 .mono { font-variant-numeric: tabular-nums; white-space: nowrap; }
 

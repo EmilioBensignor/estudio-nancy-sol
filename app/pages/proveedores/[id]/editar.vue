@@ -123,8 +123,8 @@ async function eliminar() {
         </div>
 
         <div class="field-group">
-          <label class="label">Sobrenombre</label>
-          <input v-model="form.sobrenombre" type="text" class="field" placeholder="Opcional, cómo lo tienen anotado" />
+          <label class="label">Sobrenombre <span class="label-opt">(opcional)</span></label>
+          <input v-model="form.sobrenombre" type="text" class="field" placeholder="Cómo lo tienen anotado" />
         </div>
 
         <div class="field-group">
@@ -135,12 +135,12 @@ async function eliminar() {
         </div>
 
         <div class="field-group">
-          <label class="label">Teléfono</label>
+          <label class="label">Teléfono <span class="label-opt">(opcional)</span></label>
           <input v-model="form.telefono" type="tel" class="field" placeholder="11 4456 2200" />
         </div>
         <div class="field-group">
-          <label class="label">CUIT</label>
-          <input v-model="form.cuit" type="text" class="field" placeholder="Opcional" />
+          <label class="label">CUIT <span class="label-opt">(opcional)</span></label>
+          <input v-model="form.cuit" type="text" class="field" placeholder="20-12345678-9" />
         </div>
       </div>
 

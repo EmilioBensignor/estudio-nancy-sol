@@ -236,9 +236,9 @@ select 'Saver', null, null, (select id from rubros where nombre='DATOS' limit 1)
 where not exists (select 1 from proveedores where nombre='Saver');
 
 -- Obra
-insert into obras (id, cliente_id, nombre_direccion, estado)
-values ('9a6e1e78-cb27-491c-98ad-01b915582523', '11111111-1111-1111-1111-111111111111', 'Ramsay 1945', 'activa')
-on conflict (id) do update set nombre_direccion=excluded.nombre_direccion;
+insert into obras (id, cliente_id, nombre_direccion, slug, estado)
+values ('9a6e1e78-cb27-491c-98ad-01b915582523', '11111111-1111-1111-1111-111111111111', 'Ramsay 1945', 'ramsay-1945', 'activa')
+on conflict (id) do update set nombre_direccion=excluded.nombre_direccion, slug=excluded.slug;
 
 -- Ítems del presupuesto
 insert into presupuesto_items (obra_id, fecha, proveedor_id, rubro_id, detalle, valor_proveedor, valor_presupuesto, valor_final, notas)

@@ -106,7 +106,7 @@ const clientes = computed(() => {
             <td>
               <span v-if="!c.obras?.length" class="cell-muted">—</span>
               <span v-else class="obra-links">
-                <NuxtLink v-for="o in c.obras" :key="o.id" :to="`/obras/${o.id}`" class="obra-link">
+                <NuxtLink v-for="o in c.obras" :key="o.id" :to="`/obras/${o.slug || o.id}`" class="obra-link">
                   {{ o.nombre_direccion }}
                   <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
                     <path d="M3 9l6-6M9 3H4M9 3v5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />

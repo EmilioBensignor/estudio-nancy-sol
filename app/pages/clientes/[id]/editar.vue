@@ -121,8 +121,8 @@ async function eliminar() {
           <span v-if="errors.nombre" class="field-error">{{ errors.nombre }}</span>
         </div>
         <div class="field-group">
-          <label class="label">Sobrenombre</label>
-          <input v-model="form.sobrenombre" type="text" class="field" placeholder="Opcional" />
+          <label class="label">Sobrenombre <span class="label-opt">(opcional)</span></label>
+          <input v-model="form.sobrenombre" type="text" class="field" placeholder="Cómo lo tienen anotado" />
         </div>
 
         <div class="field-group">
@@ -131,13 +131,13 @@ async function eliminar() {
           <span v-if="errors.telefono" class="field-error">{{ errors.telefono }}</span>
         </div>
         <div class="field-group">
-          <label class="label">Email</label>
+          <label class="label">Email <span class="label-opt">(opcional)</span></label>
           <input v-model="form.email" type="email" class="field" placeholder="cliente@email.com" />
         </div>
 
         <div class="field-group">
-          <label class="label">CUIT</label>
-          <input v-model="form.cuit" type="text" class="field" placeholder="Opcional" />
+          <label class="label">CUIT <span class="label-opt">(opcional)</span></label>
+          <input v-model="form.cuit" type="text" class="field" placeholder="20-12345678-9" />
         </div>
       </div>
 

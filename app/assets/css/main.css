@@ -334,7 +334,11 @@ select.field { appearance: none; cursor: pointer; padding-right: 34px;
 }
 .field--num { font-family: var(--font-mono); text-align: right; }
 
+
 .hint { font-size: 14px; color: var(--ink-faint); }
+
+/* Marca uniforme de campo opcional, junto al label: "Detalle (opcional)" */
+.label-opt { font-weight: 400; color: var(--ink-faint); text-transform: none; letter-spacing: 0; }
 
 /* Validación: campo con error + mensaje */
 .field--error { border-color: var(--negative); }

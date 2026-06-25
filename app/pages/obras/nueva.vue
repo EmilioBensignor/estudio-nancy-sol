@@ -2,6 +2,7 @@
 const { getClientes, crearObra } = useDb()
 
 const clientes = ref([])
+const opcionesCliente = computed(() => clientes.value.map((c) => ({ value: c.id, label: c.nombre })))
 
 const form = reactive({
   clienteId: '',
@@ -65,10 +66,7 @@ async function crear() {
       <div class="fields">
         <div class="field-group">
           <label class="label">Cliente</label>
-          <select v-model="form.clienteId" class="field" :class="{ 'field--error': errors.clienteId }" @change="delete errors.clienteId">
-            <option value="" disabled>Seleccionar cliente</option>
-            <option v-for="c in clientes" :key="c.id" :value="c.id">{{ c.nombre }}</option>
-          </select>
+          <SelectField v-model="form.clienteId" :options="opcionesCliente" placeholder="Seleccionar cliente" :invalid="!!errors.clienteId" @change="delete errors.clienteId" />
           <span v-if="errors.clienteId" class="field-error">{{ errors.clienteId }}</span>
         </div>
 
@@ -79,8 +77,8 @@ async function crear() {
         </div>
 
         <div class="field-group">
-          <label class="label">Fecha de inicio</label>
-          <input v-model="form.fecha" type="date" class="field" />
+          <label class="label">Fecha de inicio <span class="label-opt">(opcional)</span></label>
+          <DateField v-model="form.fecha" />
         </div>
       </div>
 
