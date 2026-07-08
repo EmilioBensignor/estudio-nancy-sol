@@ -3,6 +3,7 @@ const nav = [
   { to: '/', label: 'Obras', match: (p) => p === '/' || p.startsWith('/obras') },
   { to: '/clientes', label: 'Clientes', match: (p) => p.startsWith('/clientes') },
   { to: '/proveedores', label: 'Proveedores', match: (p) => p.startsWith('/proveedores') },
+  { to: '/retiros', label: 'Retiros', match: (p) => p.startsWith('/retiros') },
 ]
 const route = useRoute()
 

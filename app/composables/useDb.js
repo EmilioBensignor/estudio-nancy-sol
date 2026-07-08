@@ -97,6 +97,35 @@ export function useDb() {
     if (error) throw error
   }
 
+  // Deuda del proveedor por obra: presupuestado (sus items) - pagado (sus movimientos).
+  // Mismo cálculo que la tab Proveedores de una obra, agrupado acá por obra.
+  async function getDeudaProveedorPorObra(proveedorId) {
+    const [{ data: items, error: e1 }, { data: movs, error: e2 }] = await Promise.all([
+      sb()
+        .from('v_presupuesto_items')
+        .select('obra_id, valor_proveedor_ars, obra:obras(nombre_direccion, slug)')
+        .eq('proveedor_id', proveedorId),
+      sb()
+        .from('movimientos_caja')
+        .select('obra_id, monto, tipo_cambio, obra:obras(nombre_direccion, slug)')
+        .eq('proveedor_id', proveedorId)
+        .eq('tipo', 'pago_proveedor'),
+    ])
+    if (e1) throw e1
+    if (e2) throw e2
+
+    const map = new Map()
+    const get = (obraId, obra) => {
+      if (!map.has(obraId)) map.set(obraId, { obraId, obra, presupuestado: 0, pagado: 0 })
+      return map.get(obraId)
+    }
+    for (const it of items || []) get(it.obra_id, it.obra).presupuestado += Number(it.valor_proveedor_ars || 0)
+    for (const m of movs || []) get(m.obra_id, m.obra).pagado += Number(m.monto) * Number(m.tipo_cambio)
+    return [...map.values()]
+      .map((r) => ({ ...r, debo: r.presupuestado - r.pagado }))
+      .sort((a, b) => (a.obra?.nombre_direccion || '').localeCompare(b.obra?.nombre_direccion || ''))
+  }
+
   // ─── Rubros (catálogo + crear al vuelo) ────────────────────────────────
   async function getRubros() {
     const { data, error } = await sb().from('rubros').select('id, nombre').order('nombre')
@@ -314,6 +343,16 @@ export function useDb() {
     return data
   }
 
+  // Retiros de todas las obras (vista general para las socias), con el nombre de obra.
+  async function getRetirosGlobales() {
+    const { data, error } = await sb()
+      .from('retiros')
+      .select('*, obra:obras(nombre_direccion, slug)')
+      .order('fecha', { ascending: false })
+    if (error) throw error
+    return data
+  }
+
   async function getConvergencia(obraId) {
     const { data, error } = await sb()
       .from('v_retiros_convergencia')
@@ -351,11 +390,12 @@ export function useDb() {
   return {
     getClientes, getCliente, crearCliente, actualizarCliente, contarObrasDeCliente, eliminarCliente,
     getProveedores, getProveedor, crearProveedor, actualizarProveedor, contarUsosDeProveedor, eliminarProveedor,
+    getDeudaProveedorPorObra,
     getRubros, resolverRubroId,
     getObras, getObra, crearObra, actualizarObra, contarUsosDeObra, eliminarObra, getSaldosObra, getControl,
     getItems, crearItem, actualizarItem, eliminarItem, getPresupuestoCliente,
     getMovimientos, crearMovimiento, actualizarMovimiento, eliminarMovimiento,
-    getRetiros, getConvergencia, crearRetiro, actualizarRetiro, eliminarRetiro,
+    getRetiros, getRetirosGlobales, getConvergencia, crearRetiro, actualizarRetiro, eliminarRetiro,
     getSettings,
   }
 }

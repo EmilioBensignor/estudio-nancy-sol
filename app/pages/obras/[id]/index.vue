@@ -1,5 +1,5 @@
 <script setup>
-import { fmtArs as fmt, fmtUsd, fmtFecha } from '~/composables/useFormato'
+import { fmtArs as fmt, fmtUsd, fmtFecha, agruparPorRubro } from '~/composables/useFormato'
 
 const route = useRoute()
 const db = useDb()
@@ -233,33 +233,45 @@ const itemsOrdenados = computed(() =>
   ),
 )
 
+// Filas de la tabla con subtotal por rubro intercalado.
+const filasPresupuesto = computed(() => agruparPorRubro(itemsOrdenados.value))
+
 // Presupuesto: totales desde las columnas derivadas de la view
 const totalPresupuesto = computed(() => items.value.reduce((a, i) => a + Number(i.total_ars || 0), 0))
 const totalHonorarios = computed(() => items.value.reduce((a, i) => a + Number(i.honorario_ars || 0), 0))
 const totalValorFinal = computed(() => items.value.reduce((a, i) => a + Number(i.valor_final_ars || 0), 0))
 
-// Deuda por proveedor: presupuestado (costo de sus items) - pagado (movimientos a ese proveedor).
-// Agrupa por nombre; muestra solo proveedores con presupuesto o pagos.
+// Deuda por proveedor + rubro: presupuestado (costo de los items) - pagado (movimientos al proveedor).
+// Items sin proveedor caen en "Sin asignar". El pagado es por proveedor (los movimientos no tienen
+// rubro): se atribuye a la primera fila de ese proveedor para no duplicarlo.
 const deudaPorProveedor = computed(() => {
   const map = new Map()
-  const get = (nombre) => {
-    if (!map.has(nombre)) map.set(nombre, { nombre, presupuestado: 0, pagado: 0 })
-    return map.get(nombre)
+  const get = (nombre, rubro) => {
+    const key = `${nombre}|${rubro}`
+    if (!map.has(key)) map.set(key, { nombre, rubro, presupuestado: 0, pagado: 0 })
+    return map.get(key)
   }
   for (const it of items.value) {
-    const nombre = it.proveedor?.nombre
-    if (!nombre) continue
-    get(nombre).presupuestado += Number(it.valor_proveedor_ars || 0)
+    const nombre = it.proveedor?.nombre || 'Sin asignar'
+    const rubro = it.rubro?.nombre || '—'
+    get(nombre, rubro).presupuestado += Number(it.valor_proveedor_ars || 0)
   }
+  const pagadoPorProveedor = new Map()
   for (const m of movimientos.value) {
     if (m.tipo !== 'pago_proveedor') continue
     const nombre = m.proveedor?.nombre
     if (!nombre) continue
-    get(nombre).pagado += Number(m.monto) * Number(m.tipo_cambio)
+    pagadoPorProveedor.set(nombre, (pagadoPorProveedor.get(nombre) || 0) + Number(m.monto) * Number(m.tipo_cambio))
   }
-  return [...map.values()]
+  const filas = [...map.values()]
+  for (const [nombre, pagado] of pagadoPorProveedor) {
+    const primera = filas.find((f) => f.nombre === nombre)
+    if (primera) primera.pagado += pagado
+    else filas.push({ nombre, rubro: '—', presupuestado: 0, pagado })
+  }
+  return filas
     .map((p) => ({ ...p, debo: p.presupuestado - p.pagado }))
-    .sort((a, b) => b.debo - a.debo)
+    .sort((a, b) => a.rubro.localeCompare(b.rubro) || a.nombre.localeCompare(b.nombre))
 })
 const deudaTotal = computed(() => deudaPorProveedor.value.reduce((a, p) => a + p.presupuestado, 0))
 const pagadoTotal = computed(() => deudaPorProveedor.value.reduce((a, p) => a + p.pagado, 0))
@@ -268,6 +280,8 @@ const itemFormOpen = ref(false)
 const editandoItemId = ref(null)
 // Si el presupuesto exportado/visualizado muestra la columna proveedor.
 const mostrarProveedor = ref(false)
+// Interno siempre muestra subtotales por rubro; el switch controla solo el PDF.
+const mostrarSubtotales = ref(false)
 // costo = valor proveedor [interno]; adicional = sobreprecio sobre el costo (switch);
 // valor presupuesto = costo + adicional; valor final = lo que paga el cliente (default = presupuesto).
 const formItemVacio = () => ({ proveedorId: '', rubro: '', detalle: '', costo: '', adicionalOn: false, adicional: '', valor: '', notas: '' })
@@ -386,13 +400,19 @@ async function agregarItem() {
 }
 
 const borrandoItemId = ref(null)
-async function borrarItem(it) {
-  if (!confirm('¿Borrar este ítem? No se puede deshacer.')) return
+const itemABorrar = ref(null)
+function borrarItem(it) {
+  itemABorrar.value = it
+}
+async function confirmarBorrarItem() {
+  const it = itemABorrar.value
+  if (!it) return
   borrandoItemId.value = it.id
   try {
     await db.eliminarItem(it.id)
     if (editandoItemId.value === it.id) cancelarItem()
     await Promise.all([cargarItems(), cargarControl(), cargarConvergencia()])
+    itemABorrar.value = null
   } catch (e) {
     console.error(e)
   } finally {
@@ -512,19 +532,82 @@ async function borrarRetiro(r) {
   }
 }
 
-// Exportar presupuesto: arma el documento (oculto) y dispara el diálogo de guardar PDF
-// del navegador directo, sin pantalla intermedia. SOLO columnas F–K (nunca costo/ganancia).
+// Exportar: arma el documento oculto correspondiente y dispara el diálogo de
+// guardar PDF del navegador. docActivo decide cuál .solo-print se muestra.
 const itemsExport = ref([])
 const exportando = ref(false)
-async function exportar() {
+const docActivo = ref('presupuesto')
+const proveedorReporteId = ref('')
+
+// Reportes de pagos derivados de los movimientos ya cargados.
+const cobros = computed(() =>
+  [...movimientos.value]
+    .filter((m) => m.tipo === 'cobro_cliente')
+    .sort((a, b) => a.fecha.localeCompare(b.fecha)),
+)
+const pagosProveedores = computed(() =>
+  [...movimientos.value]
+    .filter((m) => m.tipo === 'pago_proveedor')
+    .sort((a, b) => a.fecha.localeCompare(b.fecha)),
+)
+
+// Monto en ARS de un movimiento (USD ya viene con tipo_cambio cargado al mover).
+function montoArs(m) {
+  return Number(m.monto) * Number(m.tipo_cambio)
+}
+// El medio se guarda en minúscula ("efectivo"); se muestra capitalizado.
+function fmtMedio(medio) {
+  return medio ? medio.charAt(0).toUpperCase() + medio.slice(1) : '—'
+}
+
+const filasCobros = computed(() =>
+  cobros.value.map((m) => ({
+    fecha: fmtFecha(m.fecha),
+    medio: fmtMedio(m.medio_pago),
+    monto: montoArs(m),
+  })),
+)
+const filasPagos = computed(() =>
+  pagosProveedores.value.map((m) => ({
+    fecha: fmtFecha(m.fecha),
+    proveedor: m.proveedor?.nombre || '—',
+    medio: fmtMedio(m.medio_pago),
+    monto: montoArs(m),
+  })),
+)
+const totalCobros = computed(() => cobros.value.reduce((a, m) => a + montoArs(m), 0))
+const totalPagos = computed(() => pagosProveedores.value.reduce((a, m) => a + montoArs(m), 0))
+
+// Detalle de un proveedor: sus items presupuestados + sus pagos + saldo.
+const proveedorReporte = computed(() => proveedores.value.find((p) => p.id === proveedorReporteId.value) || null)
+const itemsDelProveedor = computed(() =>
+  items.value
+    .filter((it) => it.proveedor_id === proveedorReporteId.value)
+    .map((it) => ({ rubro: it.rubro?.nombre || '—', detalle: it.detalle || '—', monto: Number(it.valor_proveedor_ars || 0) })),
+)
+const pagosDelProveedor = computed(() =>
+  pagosProveedores.value
+    .filter((m) => m.proveedor_id === proveedorReporteId.value)
+    .map((m) => ({ fecha: fmtFecha(m.fecha), medio: fmtMedio(m.medio_pago), monto: montoArs(m) })),
+)
+const presupuestadoProveedor = computed(() => itemsDelProveedor.value.reduce((a, r) => a + r.monto, 0))
+const pagadoProveedor = computed(() => pagosDelProveedor.value.reduce((a, r) => a + r.monto, 0))
+
+async function exportarDoc(tipo) {
   if (exportando.value) return
   exportando.value = true
-  // El navegador usa document.title como nombre sugerido del PDF. Lo seteo al slug
-  // de la obra (Ramsay-1945) y lo restauro al volver de imprimir.
+  docActivo.value = tipo
   const tituloOriginal = document.title
+  const base = obra.value?.slug || obra.value?.nombre_direccion || 'reporte'
+  const sufijo = {
+    presupuesto: 'presupuesto',
+    cobros: 'pagos-recibidos',
+    pagos: 'pagos-proveedores',
+    proveedor: `proveedor-${proveedorReporte.value?.nombre || ''}`,
+  }[tipo]
   try {
-    itemsExport.value = await db.getPresupuestoCliente(obraId)
-    document.title = obra.value.slug || obra.value.nombre_direccion || 'presupuesto'
+    if (tipo === 'presupuesto') itemsExport.value = await db.getPresupuestoCliente(obraId)
+    document.title = `${base}-${sufijo}`
     await nextTick()
     window.print()
   } catch (e) {
@@ -533,6 +616,28 @@ async function exportar() {
     document.title = tituloOriginal
     exportando.value = false
   }
+}
+// Compat: el botón del presupuesto sigue llamando exportar().
+const exportar = () => exportarDoc('presupuesto')
+
+const exportMenu = ref(null)
+function cerrarMenu() {
+  if (exportMenu.value) exportMenu.value.open = false
+}
+// Cerrar el menú al hacer click fuera de él.
+function onClickFuera(e) {
+  if (exportMenu.value?.open && !exportMenu.value.contains(e.target)) cerrarMenu()
+}
+onMounted(() => document.addEventListener('click', onClickFuera))
+onBeforeUnmount(() => document.removeEventListener('click', onClickFuera))
+function elegirExport(tipo) {
+  cerrarMenu()
+  exportarDoc(tipo)
+}
+function exportarProveedor(id) {
+  if (!id) return
+  cerrarMenu()
+  exportarDoc('proveedor')
 }
 
 // Al cambiar de tab: conservar lo escrito, pero limpiar errores y cerrar forms abiertos
@@ -573,7 +678,22 @@ function cambiarTab(id) {
         </div>
         <div class="page-header__actions">
           <NuxtLink :to="'/obras/' + (obra.slug || obra.id) + '/configuracion'" class="btn btn--secondary">Configuración</NuxtLink>
-          <button type="button" class="btn btn--primary" @click="exportar">Exportar</button>
+          <details ref="exportMenu" class="export-menu">
+            <summary class="btn btn--primary" :aria-disabled="exportando">Exportar</summary>
+            <div class="export-menu__panel">
+              <button type="button" class="export-menu__item" @click="elegirExport('presupuesto')">Presupuesto</button>
+              <button type="button" class="export-menu__item" @click="elegirExport('cobros')">Pagos recibidos</button>
+              <button type="button" class="export-menu__item" @click="elegirExport('pagos')">Pagos a proveedores</button>
+              <div class="export-menu__sep"></div>
+              <span class="export-menu__label">Detalle de proveedor</span>
+              <SelectField
+                v-model="proveedorReporteId"
+                :options="opcionesProveedor"
+                placeholder="Elegí proveedor"
+                @update:model-value="exportarProveedor"
+              />
+            </div>
+          </details>
         </div>
       </div>
     </header>
@@ -733,6 +853,12 @@ function cambiarTab(id) {
                 <span class="switch__knob"></span>
               </button>
             </div>
+            <div class="toggle-prov">
+              <span>Subtotales en PDF</span>
+              <button type="button" class="switch" :class="{ 'switch--on': mostrarSubtotales }" role="switch" :aria-checked="mostrarSubtotales" @click="mostrarSubtotales = !mostrarSubtotales">
+                <span class="switch__knob"></span>
+              </button>
+            </div>
             <button class="btn btn--primary btn--sm" @click="itemFormOpen ? cancelarItem() : abrirAltaItem()">
               <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
                 <path v-if="itemFormOpen" d="M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
@@ -744,16 +870,16 @@ function cambiarTab(id) {
         </div>
 
         <form v-if="itemFormOpen" class="item-form" @submit.prevent="agregarItem">
-          <!-- Proveedor (autocompleta rubro) + rubro -->
+          <!-- Rubro + proveedor (autocompleta rubro) -->
           <div class="item-form__row item-form__row--2">
-            <div class="field-group">
-              <label class="label">Proveedor <span class="label-opt">(opcional)</span></label>
-              <SelectField v-model="formItem.proveedorId" :options="opcionesProveedorOpt" placeholder="Sin asignar" @change="onProveedorItem" />
-            </div>
             <div class="field-group">
               <label class="label">Rubro</label>
               <RubroCombo v-model="formItem.rubro" placeholder="Ej: Albañilería" :invalid="!!errItem.rubro" @update:model-value="delete errItem.rubro" />
               <span v-if="errItem.rubro" class="field-error">{{ errItem.rubro }}</span>
+            </div>
+            <div class="field-group">
+              <label class="label">Proveedor <span class="label-opt">(opcional)</span></label>
+              <SelectField v-model="formItem.proveedorId" :options="opcionesProveedorOpt" placeholder="Sin asignar" @change="onProveedorItem" />
             </div>
           </div>
 
@@ -816,46 +942,67 @@ function cambiarTab(id) {
               <th style="width: 150px">Rubro</th>
               <th style="width: 150px">Proveedor</th>
               <th>Detalle</th>
-              <th class="num" style="width: 130px">Valor final</th>
-              <th class="num" style="width: 140px; white-space: nowrap">Honorario 15%</th>
-              <th class="num" style="width: 140px">Total</th>
+              <th class="num" style="width: 140px">Valor final</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="it in itemsOrdenados" :key="it.id" :class="{ 'row--editando': editandoItemId === it.id }">
-              <td class="cell-strong">{{ it.rubro?.nombre || '—' }}</td>
-              <td class="cell-muted">{{ it.proveedor?.nombre || '—' }}</td>
-              <td class="cell-muted">{{ it.detalle || '—' }}</td>
-              <td class="num monto">{{ fmt(it.valor_final_ars) }}</td>
-              <td class="num monto monto--accent">{{ fmt(it.honorario_ars) }}</td>
-              <td class="num monto cell-saldo">{{ fmt(it.total_ars) }}</td>
-              <td class="cell-acciones">
-                <div class="cell-acciones__inner">
-                  <button type="button" class="icon-btn" title="Editar" @click="editarItem(it)">
-                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-                      <path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10l7.5-7.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
-                    </svg>
-                  </button>
-                  <button type="button" class="icon-btn icon-btn--danger" title="Borrar" :disabled="borrandoItemId === it.id" @click="borrarItem(it)">
-                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-                      <path d="M3 4h10M6.5 4V3h3v1M5 4l.5 9h5L11 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
-                    </svg>
-                  </button>
-                </div>
-              </td>
-            </tr>
+            <template v-for="(fila, i) in filasPresupuesto" :key="fila.tipo === 'item' ? fila.it.id : `sub-${i}`">
+              <tr v-if="fila.tipo === 'item'" :class="{ 'row--editando': editandoItemId === fila.it.id }">
+                <td class="cell-strong">{{ fila.it.rubro?.nombre || '—' }}</td>
+                <td class="cell-muted">{{ fila.it.proveedor?.nombre || '—' }}</td>
+                <td class="cell-muted">{{ fila.it.detalle || '—' }}</td>
+                <td class="num monto">{{ fmt(fila.it.valor_final_ars) }}</td>
+                <td class="cell-acciones">
+                  <div class="cell-acciones__inner">
+                    <button type="button" class="icon-btn" title="Editar" @click="editarItem(fila.it)">
+                      <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                        <path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10l7.5-7.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
+                      </svg>
+                    </button>
+                    <button type="button" class="icon-btn icon-btn--danger" title="Borrar" :disabled="borrandoItemId === fila.it.id" @click="borrarItem(fila.it)">
+                      <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                        <path d="M3 4h10M6.5 4V3h3v1M5 4l.5 9h5L11 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+                      </svg>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+              <tr v-else class="row--subtotal">
+                <td class="cell-subtotal-label" colspan="3">Subtotal {{ fila.rubro }}</td>
+                <td class="num monto">{{ fmt(fila.valor) }}</td>
+                <td></td>
+              </tr>
+            </template>
           </tbody>
           <tfoot>
             <tr>
-              <td colspan="3" class="cell-total-label">Total presupuesto</td>
-              <td class="num monto cell-total">{{ fmt(totalValorFinal) }}</td>
+              <td colspan="3" class="cell-total-label">Subtotal</td>
+              <td class="num monto">{{ fmt(totalValorFinal) }}</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td colspan="3" class="cell-total-label">Honorarios 15%</td>
               <td class="num monto monto--accent">{{ fmt(totalHonorarios) }}</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td colspan="3" class="cell-total-label">Total</td>
               <td class="num monto cell-total">{{ fmt(totalPresupuesto) }}</td>
               <td></td>
             </tr>
           </tfoot>
         </table>
+
+        <ConfirmDialog
+          :open="!!itemABorrar"
+          titulo="¿Borrar ítem?"
+          mensaje="Esta acción no se puede deshacer."
+          confirmarTexto="Borrar"
+          :procesando="!!borrandoItemId"
+          @confirmar="confirmarBorrarItem"
+          @cerrar="itemABorrar = null"
+        />
       </section>
     </div>
 
@@ -874,6 +1021,7 @@ function cambiarTab(id) {
         <table v-else class="table table--deuda">
           <thead>
             <tr>
+              <th>Rubro</th>
               <th>Proveedor</th>
               <th class="num">Presupuestado</th>
               <th class="num">Pagado</th>
@@ -881,8 +1029,9 @@ function cambiarTab(id) {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="p in deudaPorProveedor" :key="p.nombre">
-              <td class="cell-strong">{{ p.nombre }}</td>
+            <tr v-for="p in deudaPorProveedor" :key="`${p.nombre}|${p.rubro}`">
+              <td class="cell-strong">{{ p.rubro }}</td>
+              <td class="cell-muted">{{ p.nombre }}</td>
               <td class="num monto">{{ fmt(p.presupuestado) }}</td>
               <td class="num monto monto--pos">{{ fmt(p.pagado) }}</td>
               <td class="num monto" :class="{ 'debo-exceso': p.debo < 0 }">{{ fmt(p.debo) }}</td>
@@ -890,7 +1039,7 @@ function cambiarTab(id) {
           </tbody>
           <tfoot>
             <tr>
-              <td class="cell-total-label">Total</td>
+              <td colspan="2" class="cell-total-label">Total</td>
               <td class="num monto">{{ fmt(deudaTotal) }}</td>
               <td class="num monto monto--pos">{{ fmt(pagadoTotal) }}</td>
               <td class="num monto cell-total">{{ fmt(deudaTotal - pagadoTotal) }}</td>
@@ -906,7 +1055,7 @@ function cambiarTab(id) {
           <span class="eyebrow">Reparto entre socias</span>
           <div class="reparto__stats">
             <span class="reparto__stat">Disponible <strong class="monto" :class="esPositivo(cvg.disponible_retiro_ars) ? 'monto--pos' : 'monto--neg'">{{ fmt(cvg.disponible_retiro_ars) }}</strong></span>
-            <span class="reparto__stat">Ganancia cobrada <strong class="monto">{{ fmt(cvg.ganancia_cobrada_ars) }}</strong></span>
+            <span class="reparto__stat">Honorarios 15% <strong class="monto">{{ fmt(cvg.ganancia_cobrada_ars) }}</strong></span>
           </div>
         </div>
 
@@ -1007,16 +1156,106 @@ function cambiarTab(id) {
       </section>
     </div>
 
-    <!-- Documento del presupuesto: oculto en pantalla, solo aparece al imprimir (Exportar) -->
+    <!-- Documentos: ocultos en pantalla, solo aparece al imprimir el que está activo (Exportar) -->
     <div class="solo-print">
-      <DocumentoPresupuesto :obra="obra" :items="itemsExport" :mostrar-proveedor="mostrarProveedor" />
+      <DocumentoPresupuesto
+        v-if="docActivo === 'presupuesto'"
+        :obra="obra"
+        :items="itemsExport"
+        :mostrar-proveedor="mostrarProveedor"
+        :mostrar-subtotales="mostrarSubtotales"
+      />
+      <DocumentoReporte
+        v-else-if="docActivo === 'cobros'"
+        :obra="obra"
+        titulo="Pagos recibidos"
+        :columnas="[
+          { key: 'fecha', label: 'Fecha' },
+          { key: 'medio', label: 'Medio' },
+          { key: 'monto', label: 'Monto', num: true },
+        ]"
+        :filas="filasCobros"
+        :totales="[{ label: 'Total recibido', valor: totalCobros }]"
+      />
+      <DocumentoReporte
+        v-else-if="docActivo === 'pagos'"
+        :obra="obra"
+        titulo="Pagos a proveedores"
+        :columnas="[
+          { key: 'fecha', label: 'Fecha' },
+          { key: 'proveedor', label: 'Proveedor' },
+          { key: 'medio', label: 'Medio' },
+          { key: 'monto', label: 'Monto', num: true },
+        ]"
+        :filas="filasPagos"
+        :totales="[{ label: 'Total pagado', valor: totalPagos }]"
+      />
+      <template v-else-if="docActivo === 'proveedor'">
+        <DocumentoReporte
+          :obra="obra"
+          titulo="Detalle de proveedor · Presupuestado"
+          :subtitulo="proveedorReporte?.nombre || ''"
+          :columnas="[
+            { key: 'rubro', label: 'Rubro' },
+            { key: 'detalle', label: 'Detalle' },
+            { key: 'monto', label: 'Monto', num: true },
+          ]"
+          :filas="itemsDelProveedor"
+          :totales="[
+            { label: 'Presupuestado', valor: presupuestadoProveedor },
+            { label: 'Pagado', valor: pagadoProveedor },
+            { label: 'Saldo', valor: presupuestadoProveedor - pagadoProveedor },
+          ]"
+        />
+      </template>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* Documento del presupuesto: oculto en pantalla, el @media print global lo muestra */
+/* Documentos de export: ocultos en pantalla, el @media print global los muestra */
 .solo-print { display: none; }
+
+/* Menú de exportación (details/summary nativo estilado como dropdown) */
+.export-menu { position: relative; }
+.export-menu > summary { list-style: none; cursor: pointer; }
+.export-menu > summary::-webkit-details-marker { display: none; }
+.export-menu[open] > summary { background: var(--accent-hover, var(--accent)); }
+.export-menu__panel {
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 8px;
+}
+.export-menu__item {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 15px;
+  color: var(--ink);
+  cursor: pointer;
+  padding: 9px 12px;
+}
+.export-menu__item:hover { background: var(--surface-raised); color: var(--accent); }
+.export-menu__sep { border-top: 1px solid var(--border-subtle); margin: 4px 0; }
+.export-menu__label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+  padding: 4px 12px 2px;
+}
 
 /* Bloque de control contable (réplica del Excel): 5 saldos + fila Control que cierra en 0 */
 .control {
@@ -1224,6 +1463,8 @@ function cambiarTab(id) {
 .table tfoot td { padding: 15px 18px; border-top: 1px solid var(--border); background: var(--surface-raised); }
 .cell-total-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-muted); }
 .cell-total { font-weight: 600; font-size: 16px; color: var(--ink); }
+.row--subtotal td { background: var(--surface-raised); font-weight: 600; }
+.cell-subtotal-label { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-muted); }
 
 @media (max-width: 560px) {
   .mov-form { grid-template-columns: 1fr; }

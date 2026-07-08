@@ -2,13 +2,31 @@
 // Documento imprimible del presupuesto para el cliente.
 // SOLO columnas F–K (rubro, detalle, valor, honorarios, total). Nunca costo ni ganancia.
 // Se renderiza oculto en el detalle de obra; al imprimir (@media print) queda solo esta hoja.
-import { fmtArs as fmt } from '~/composables/useFormato'
+import { fmtArs as fmt, agruparPorRubro } from '~/composables/useFormato'
 
 const props = defineProps({
   obra: { type: Object, default: null },
   items: { type: Array, default: () => [] },
   mostrarProveedor: { type: Boolean, default: false },
+  mostrarSubtotales: { type: Boolean, default: false },
 })
+
+// La view devuelve los items por fecha; para agrupar por rubro hay que ordenarlos
+// primero (si no, un rubro intercalado parte el grupo y el subtotal da mal).
+const itemsOrdenados = computed(() =>
+  [...props.items].sort(
+    (a, b) =>
+      (a.rubro?.nombre || '').localeCompare(b.rubro?.nombre || '') ||
+      (a.detalle || '').localeCompare(b.detalle || ''),
+  ),
+)
+
+// Filas con subtotal por rubro intercalado; sin subtotales queda solo la lista de items.
+const filas = computed(() =>
+  props.mostrarSubtotales
+    ? agruparPorRubro(itemsOrdenados.value)
+    : itemsOrdenados.value.map((it) => ({ tipo: 'item', it })),
+)
 
 const hoy = new Date()
 const fechaEmision = `${String(hoy.getDate()).padStart(2, '0')}/${String(hoy.getMonth() + 1).padStart(2, '0')}/${hoy.getFullYear()}`
@@ -52,25 +70,33 @@ const totalValor = computed(() => props.items.reduce((a, i) => a + Number(i.valo
           <th v-if="mostrarProveedor" class="col-prov">Proveedor</th>
           <th class="col-detalle">Detalle</th>
           <th class="col-num">Valor</th>
-          <th class="col-num">Honorarios 15%</th>
-          <th class="col-num">Total</th>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="it in items" :key="it.id">
-          <td class="col-rubro">{{ it.rubro?.nombre || '—' }}</td>
-          <td v-if="mostrarProveedor" class="col-prov">{{ it.proveedor?.nombre || '—' }}</td>
-          <td class="col-detalle">{{ it.detalle }}</td>
-          <td class="col-num mono">{{ fmt(it.valor_final_ars) }}</td>
-          <td class="col-num mono">{{ fmt(it.honorario_ars) }}</td>
-          <td class="col-num mono col-total">{{ fmt(it.total_ars) }}</td>
-        </tr>
+        <template v-for="(fila, i) in filas" :key="fila.tipo === 'item' ? fila.it.id : `sub-${i}`">
+          <tr v-if="fila.tipo === 'item'">
+            <td class="col-rubro">{{ fila.it.rubro?.nombre || '—' }}</td>
+            <td v-if="mostrarProveedor" class="col-prov">{{ fila.it.proveedor?.nombre || '—' }}</td>
+            <td class="col-detalle">{{ fila.it.detalle }}</td>
+            <td class="col-num mono">{{ fmt(fila.it.valor_final_ars) }}</td>
+          </tr>
+          <tr v-else class="doc__subtotal">
+            <td :colspan="mostrarProveedor ? 3 : 2" class="doc__subtotal-label">Subtotal {{ fila.rubro }}</td>
+            <td class="col-num mono">{{ fmt(fila.valor) }}</td>
+          </tr>
+        </template>
       </tbody>
       <tfoot>
         <tr>
-          <td :colspan="mostrarProveedor ? 3 : 2" class="doc__total-label">Total</td>
-          <td class="col-num mono doc__total-value">{{ fmt(totalValor) }}</td>
+          <td :colspan="mostrarProveedor ? 3 : 2" class="doc__total-label">Subtotal</td>
+          <td class="col-num mono">{{ fmt(totalValor) }}</td>
+        </tr>
+        <tr>
+          <td :colspan="mostrarProveedor ? 3 : 2" class="doc__total-label">Honorarios 15%</td>
           <td class="col-num mono">{{ fmt(totalHonorarios) }}</td>
+        </tr>
+        <tr>
+          <td :colspan="mostrarProveedor ? 3 : 2" class="doc__total-label">Total</td>
           <td class="col-num mono doc__total-value">{{ fmt(totalGeneral) }}</td>
         </tr>
       </tfoot>
@@ -156,6 +182,9 @@ const totalValor = computed(() => props.items.reduce((a, i) => a + Number(i.valo
 .doc__table tfoot td { padding: 16px 10px; border-top: 2px solid #1c1a17; border-bottom: none; }
 .doc__total-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
 .doc__total-value { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
+
+.doc__subtotal td { background: #f4f1ea; border-top: 1px solid #d8d4cc; font-weight: 600; color: #1c1a17; }
+.doc__subtotal-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #6b6860; }
 
 .doc__notas {
   margin-top: 36px;

@@ -102,13 +102,20 @@ const rubrosCount = computed(() => new Set(lista.value.map((p) => p.rubro?.nombr
         </thead>
         <tbody>
           <tr v-if="!proveedores.length"><td colspan="5" class="cell-muted">Sin resultados para “{{ busqueda }}”.</td></tr>
-          <tr v-for="p in proveedores" :key="p.id">
+          <tr
+            v-for="p in proveedores"
+            :key="p.id"
+            class="row--link"
+            tabindex="0"
+            @click="navigateTo(`/proveedores/${p.id}`)"
+            @keydown.enter="navigateTo(`/proveedores/${p.id}`)"
+          >
             <td class="cell-strong">{{ p.nombre }}</td>
             <td><span v-if="p.rubro" class="rubro-tag">{{ p.rubro.nombre }}</span><span v-else class="cell-muted">—</span></td>
             <td class="cell-muted">{{ p.telefono || '—' }}</td>
             <td class="cell-muted">{{ p.cuit || '—' }}</td>
             <td class="col-accion">
-              <NuxtLink :to="`/proveedores/${p.id}/editar`" class="btn-icon" aria-label="Editar proveedor">
+              <NuxtLink :to="`/proveedores/${p.id}/editar`" class="btn-icon" aria-label="Editar proveedor" @click.stop>
                 <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
                   <path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10l7.5-7.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
                 </svg>
@@ -139,6 +146,9 @@ const rubrosCount = computed(() => new Set(lista.value.map((p) => p.rubro?.nombr
 }
 .prov-search::-webkit-search-cancel-button { -webkit-appearance: none; }
 .th-sort { cursor: pointer; user-select: none; }
+.row--link { cursor: pointer; }
+.row--link:hover { background: var(--surface-raised); }
+.row--link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .sort-arrow { color: var(--ink-faint); font-size: 13px; }
 .sort-arrow--active { color: var(--accent); }
 .cell-strong { font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
