@@ -213,6 +213,34 @@ export function useDb() {
     return data
   }
 
+  // Copia una obra con sus ítems de presupuesto. NO copia caja ni retiros:
+  // la obra nueva arranca con saldos en cero.
+  async function duplicarObra(obraId, nombreNuevo) {
+    const { data: origen, error: e1 } = await sb()
+      .from('obras')
+      .select('cliente_id, honorario_override, split_nancy_override, split_sol_override, tipo_cambio_fallback')
+      .eq('id', obraId)
+      .single()
+    if (e1) throw e1
+
+    const nueva = await crearObra({ ...origen, nombre_direccion: nombreNuevo })
+
+    const { data: items, error: e2 } = await sb()
+      .from('presupuesto_items')
+      .select('fecha, proveedor_id, rubro_id, detalle, valor_proveedor, moneda_proveedor, tc_proveedor, valor_presupuesto, moneda, tc_item, valor_final, notas')
+      .eq('obra_id', obraId)
+    if (e2) throw e2
+
+    if (items?.length) {
+      const { error: e3 } = await sb()
+        .from('presupuesto_items')
+        .insert(items.map((it) => ({ ...it, obra_id: nueva.id })))
+      if (e3) throw e3
+    }
+
+    return nueva
+  }
+
   async function actualizarObra(id, cambios) {
     const { data, error } = await sb().from('obras').update(cambios).eq('id', id).select().single()
     if (error) throw error
@@ -392,7 +420,7 @@ export function useDb() {
     getProveedores, getProveedor, crearProveedor, actualizarProveedor, contarUsosDeProveedor, eliminarProveedor,
     getDeudaProveedorPorObra,
     getRubros, resolverRubroId,
-    getObras, getObra, crearObra, actualizarObra, contarUsosDeObra, eliminarObra, getSaldosObra, getControl,
+    getObras, getObra, crearObra, duplicarObra, actualizarObra, contarUsosDeObra, eliminarObra, getSaldosObra, getControl,
     getItems, crearItem, actualizarItem, eliminarItem, getPresupuestoCliente,
     getMovimientos, crearMovimiento, actualizarMovimiento, eliminarMovimiento,
     getRetiros, getRetirosGlobales, getConvergencia, crearRetiro, actualizarRetiro, eliminarRetiro,

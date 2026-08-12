@@ -1,11 +1,16 @@
 <script setup>
 import { fmtArs as fmt } from '~/composables/useFormato'
 
-const { getObras } = useDb()
+const { getObras, duplicarObra } = useDb()
 
 const obras = ref([])
 const cargando = ref(true)
 const error = ref('')
+
+const menuAbierto = ref(null)
+const obraADuplicar = ref(null)
+const duplicando = ref(false)
+const errorDuplicar = ref('')
 
 onMounted(async () => {
   try {
@@ -16,7 +21,44 @@ onMounted(async () => {
   } finally {
     cargando.value = false
   }
+  document.addEventListener('click', cerrarMenu)
 })
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', cerrarMenu)
+})
+
+function toggleMenu(id) {
+  menuAbierto.value = menuAbierto.value === id ? null : id
+}
+
+function cerrarMenu() {
+  menuAbierto.value = null
+}
+
+function abrirDuplicar(obra) {
+  menuAbierto.value = null
+  errorDuplicar.value = ''
+  obraADuplicar.value = obra
+}
+
+function cerrarDuplicar() {
+  if (duplicando.value) return
+  obraADuplicar.value = null
+}
+
+async function confirmarDuplicar(nombre) {
+  duplicando.value = true
+  errorDuplicar.value = ''
+  try {
+    const nueva = await duplicarObra(obraADuplicar.value.id, nombre)
+    navigateTo(`/obras/${nueva.slug || nueva.id}`)
+  } catch (e) {
+    errorDuplicar.value = 'No se pudo duplicar la obra. Reintentá.'
+    console.error(e)
+    duplicando.value = false
+  }
+}
 
 // Total a cobrar de obras activas: lidera con el número que más importa
 const activas = computed(() => obras.value.filter((o) => o.estado === 'activa'))
@@ -86,7 +128,29 @@ const totalEnCaja = computed(() => obras.value.reduce((acc, o) => acc + Number(o
               <h2 class="obra-card__name">{{ obra.nombre_direccion }}</h2>
               <p class="obra-card__client">{{ obra.cliente_nombre }}</p>
             </div>
-            <span v-if="obra.estado === 'finalizada'" class="estado estado--finalizada">finalizada</span>
+            <div class="obra-card__meta">
+              <span v-if="obra.estado === 'finalizada'" class="estado estado--finalizada">finalizada</span>
+              <div class="menu">
+                <button
+                  type="button"
+                  class="btn-icon"
+                  aria-label="Acciones de la obra"
+                  :aria-expanded="menuAbierto === obra.id"
+                  @click.stop="toggleMenu(obra.id)"
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <circle cx="8" cy="3" r="1.5" />
+                    <circle cx="8" cy="8" r="1.5" />
+                    <circle cx="8" cy="13" r="1.5" />
+                  </svg>
+                </button>
+                <div v-if="menuAbierto === obra.id" class="menu__pop" @click.stop>
+                  <button type="button" class="menu__item" @click="abrirDuplicar(obra)">
+                    Duplicar obra
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="obra-card__figure">
@@ -98,6 +162,15 @@ const totalEnCaja = computed(() => obras.value.reduce((acc, o) => acc + Number(o
         </article>
       </div>
     </main>
+
+    <DuplicarObraDialog
+      :open="!!obraADuplicar"
+      :obra="obraADuplicar"
+      :procesando="duplicando"
+      :error="errorDuplicar"
+      @cerrar="cerrarDuplicar"
+      @confirmar="confirmarDuplicar"
+    />
   </div>
 </template>
 
@@ -173,7 +246,39 @@ const totalEnCaja = computed(() => obras.value.reduce((acc, o) => acc + Number(o
 .obra-card__id { min-width: 0; }
 .obra-card__name { font-size: 19px; font-weight: 600; letter-spacing: -0.2px; color: var(--ink); line-height: 1.25; }
 .obra-card__client { font-size: 15px; color: var(--ink-muted); margin-top: 4px; }
+.obra-card__meta { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .obra-card__head .estado { flex-shrink: 0; }
+
+/* ===== Menú de acciones de la card ===== */
+.menu { position: relative; }
+.menu .btn-icon { border: 1px solid transparent; background: transparent; cursor: pointer; }
+.menu .btn-icon:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+
+.menu__pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 10;
+  min-width: 168px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 5px;
+}
+.menu__item {
+  width: 100%;
+  border: none;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: transparent;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+  padding: 8px 10px;
+}
+.menu__item:hover { background: var(--surface-raised); color: var(--accent); }
 
 /* La cifra protagonista de la card */
 .obra-card__figure { display: flex; flex-direction: column; gap: 5px; margin-top: auto; }
