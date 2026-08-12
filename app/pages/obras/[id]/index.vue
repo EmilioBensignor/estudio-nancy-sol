@@ -307,15 +307,15 @@ function toggleAdicional() {
 }
 // Sugerir valor final = presupuesto, salvo que el usuario ya lo haya editado.
 function sugerirFinal() {
-  if (editandoItemId.value) return
   if (!valorEditado.value && presupuestoItem.value > 0) {
     formItem.valor = String(presupuestoItem.value)
   }
 }
 // Marca el valor final como editado manualmente (deja de auto-sugerirse).
 function onValorInput() {
-  valorEditado.value = true
+  valorEditado.value = formItem.valor !== ''
   delete errItem.valor
+  sugerirFinal()
 }
 
 // Al elegir proveedor, autocompletar el rubro si el proveedor tiene uno.
@@ -347,7 +347,7 @@ function editarItem(it) {
     valor: String(it.valor_final ?? ''),
     notas: it.notas || '',
   })
-  valorEditado.value = true
+  valorEditado.value = Number(it.valor_final) !== Number(it.valor_presupuesto)
   Object.keys(errItem).forEach((k) => delete errItem[k])
   itemFormOpen.value = true
 }
