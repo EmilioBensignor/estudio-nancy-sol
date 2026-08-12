@@ -307,6 +307,7 @@ function toggleAdicional() {
 }
 // Sugerir valor final = presupuesto, salvo que el usuario ya lo haya editado.
 function sugerirFinal() {
+  if (editandoItemId.value) return
   if (!valorEditado.value && presupuestoItem.value > 0) {
     formItem.valor = String(presupuestoItem.value)
   }
@@ -335,14 +336,14 @@ function abrirAltaItem() {
 }
 function editarItem(it) {
   editandoItemId.value = it.id
-  const tieneAdicional = Number(it.valor_presupuesto) > Number(it.valor_proveedor)
+  const adicional = Number(it.valor_presupuesto) - Number(it.valor_proveedor)
   Object.assign(formItem, {
     proveedorId: it.proveedor_id || '',
     rubro: it.rubro?.nombre || '',
     detalle: it.detalle || '',
     costo: String(it.valor_proveedor ?? ''),
-    adicionalOn: tieneAdicional,
-    adicional: tieneAdicional ? String(Number(it.valor_presupuesto) - Number(it.valor_proveedor)) : '',
+    adicionalOn: adicional !== 0,
+    adicional: adicional === 0 ? '' : String(adicional),
     valor: String(it.valor_final ?? ''),
     notas: it.notas || '',
   })
@@ -369,7 +370,7 @@ async function agregarItem() {
     const rubroId = await db.resolverRubroId(formItem.rubro)
     const costo = Number(formItem.costo) || 0
     const final = Number(formItem.valor)
-    const presupuesto = presupuestoItem.value || final
+    const presupuesto = presupuestoItem.value
     const payload = {
       rubro_id: rubroId,
       proveedor_id: formItem.proveedorId || null,
