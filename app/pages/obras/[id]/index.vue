@@ -1,5 +1,551 @@
+<template>
+  <div class="shell">
+    <header class="page-header page-header--plain">
+      <NuxtLink to="/" class="back">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M9 2L4 7l5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        Obras
+      </NuxtLink>
+      <div class="page-header__row">
+        <div class="page-header__titles">
+          <template v-if="cargando">
+            <Skeleton width="240px" height="28px" />
+            <Skeleton width="140px" height="15px" radius="4px" />
+          </template>
+          <template v-else>
+            <h1 class="title">{{ obra.nombre_direccion }}</h1>
+            <p class="obra-meta">
+              {{ obra.cliente?.nombre }}
+              <span class="dot" :class="'dot--' + obra.estado"></span>
+              {{ obra.estado }}
+            </p>
+          </template>
+        </div>
+        <div class="page-header__actions">
+          <NuxtLink :to="'/obras/' + (obra.slug || obra.id) + '/configuracion'" class="btn btn--secondary">Configuración</NuxtLink>
+          <details ref="exportMenu" class="export-menu">
+            <summary class="btn btn--primary" :aria-disabled="exportando">Exportar</summary>
+            <div class="export-menu__panel">
+              <button type="button" class="export-menu__item" @click="elegirExport('presupuesto')">Presupuesto</button>
+              <button type="button" class="export-menu__item" @click="elegirExport('cobros')">Pagos recibidos</button>
+              <button type="button" class="export-menu__item" @click="elegirExport('pagos')">Pagos a proveedores</button>
+              <div class="export-menu__sep"></div>
+              <span class="export-menu__label">Detalle de proveedor</span>
+              <SelectField
+                v-model="proveedorReporteId"
+                :options="opcionesProveedor"
+                placeholder="Elegí proveedor"
+                @update:model-value="exportarProveedor"
+              />
+            </div>
+          </details>
+        </div>
+      </div>
+    </header>
+
+    <!-- Bloque de control contable (Excel, hoja Caja). Las 5 líneas deben sumar 0. -->
+    <div class="control">
+      <div class="control__rows">
+        <div class="control__row">
+          <span class="control__label">Saldo a cobrar del cliente</span>
+          <Skeleton v-if="cargando" width="120px" height="20px" />
+          <span v-else class="control__value monto">{{ fmt(control.aCobrar) }}</span>
+        </div>
+        <div class="control__row">
+          <span class="control__label">Saldo en caja</span>
+          <Skeleton v-if="cargando" width="120px" height="20px" />
+          <span v-else class="control__value monto">{{ fmt(control.saldoCaja) }}</span>
+        </div>
+        <div class="control__row">
+          <span class="control__label">Deuda a proveedores</span>
+          <Skeleton v-if="cargando" width="120px" height="20px" />
+          <span v-else class="control__value monto">{{ fmt(control.deudaProveedores) }}</span>
+        </div>
+        <div class="control__row">
+          <span class="control__label">Adicionales</span>
+          <Skeleton v-if="cargando" width="120px" height="20px" />
+          <span v-else class="control__value monto">{{ fmt(control.adicionales) }}</span>
+        </div>
+        <div class="control__row">
+          <span class="control__label">Saldo de honorarios a retirar</span>
+          <Skeleton v-if="cargando" width="120px" height="20px" />
+          <span v-else class="control__value monto">{{ fmt(control.honorariosRetirar) }}</span>
+        </div>
+      </div>
+      <div class="control__total" :class="cargando ? '' : (controlOk ? 'control__total--ok' : 'control__total--error')">
+        <span class="control__label">
+          Control
+          <span v-if="!cargando && !controlOk" class="control__flag">SI NO ES 0 HAY ERROR</span>
+        </span>
+        <Skeleton v-if="cargando" width="120px" height="20px" />
+        <span v-else class="control__value monto">{{ fmt(control.total) }}</span>
+      </div>
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button v-for="t in tabs" :key="t.id" type="button" class="tab" :class="{ 'tab--active': tab === t.id }" @click="cambiarTab(t.id)">{{ t.label }}</button>
+    </div>
+
+    <div v-if="tab === 'caja'" class="tabpanel">
+      <section class="panel">
+        <div class="panel__head split">
+          <span class="eyebrow">Movimientos</span>
+          <button class="btn btn--primary btn--sm" @click="cajaFormOpen ? cancelarMov() : abrirAltaMov()">
+            <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+              <path v-if="cajaFormOpen" d="M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+              <path v-else d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+            {{ cajaFormOpen ? 'Cerrar' : 'Registrar movimiento' }}
+          </button>
+        </div>
+
+        <form v-if="cajaFormOpen" class="mov-form" @submit.prevent="agregarMovimiento">
+          <div class="field-group col-tipo">
+            <label class="label">Tipo</label>
+            <SelectField v-model="formMov.tipo" :options="opcionesTipo" placeholder="Seleccioná tipo" :invalid="!!errMov.tipo" @change="delete errMov.tipo" />
+            <span v-if="errMov.tipo" class="field-error">{{ errMov.tipo }}</span>
+          </div>
+          <div v-if="esPago" class="field-group col-prov">
+            <label class="label">Proveedor</label>
+            <SelectField v-model="formMov.proveedorId" :options="opcionesProveedor" placeholder="Seleccioná proveedor" :invalid="!!errMov.proveedor" @change="delete errMov.proveedor" />
+            <span v-if="errMov.proveedor" class="field-error">{{ errMov.proveedor }}</span>
+          </div>
+          <div class="field-group col-monto">
+            <label class="label">Monto</label>
+            <div class="monto-input">
+              <input v-model="formMov.monto" type="number" class="field field--num" :class="{ 'field--error': errMov.monto }" placeholder="0" @input="delete errMov.monto" />
+              <button type="button" class="moneda-toggle" :class="{ 'moneda-toggle--on': enDolares }" @click="enDolares = !enDolares">
+                {{ enDolares ? 'US$' : '$' }}
+              </button>
+            </div>
+            <span v-if="errMov.monto" class="field-error">{{ errMov.monto }}</span>
+          </div>
+          <div class="field-group col-fecha">
+            <label class="label">Fecha</label>
+            <DateField v-model="formMov.fecha" :invalid="!!errMov.fecha" @update:model-value="delete errMov.fecha" />
+            <span v-if="errMov.fecha" class="field-error">{{ errMov.fecha }}</span>
+          </div>
+          <div v-if="enDolares" class="field-group col-medio">
+            <label class="label">Valor dólar</label>
+            <input v-model="formMov.tcManual" type="number" class="field field--num" :class="{ 'field--error': errMov.tcManual }" placeholder="Ej: 1200" @input="delete errMov.tcManual" />
+            <span v-if="errMov.tcManual" class="field-error">{{ errMov.tcManual }}</span>
+            <span v-else-if="equivPesos != null" class="field-hint">= {{ fmt(equivPesos) }}</span>
+          </div>
+          <div v-else class="field-group col-medio">
+            <label class="label">Medio de pago</label>
+            <SelectField v-model="formMov.medio" :options="opcionesMedio" placeholder="Seleccioná medio" :invalid="!!errMov.medio" @change="delete errMov.medio" />
+            <span v-if="errMov.medio" class="field-error">{{ errMov.medio }}</span>
+          </div>
+          <div class="field-group col-submit">
+            <button type="submit" class="btn btn--primary" :disabled="guardandoMov">{{ guardandoMov ? 'Guardando…' : (editandoId ? 'Guardar cambios' : 'Agregar movimiento') }}</button>
+          </div>
+        </form>
+
+        <p v-if="!movimientos.length" class="estado-msg">Todavía no hay movimientos en esta obra.</p>
+        <table v-else class="table table--caja">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Detalle</th>
+              <th class="num">Monto</th>
+              <th class="num">Saldo</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="m in movimientos" :key="m.id" :class="{ 'row--editando': editandoId === m.id }">
+              <td class="cell-date">{{ fmtFecha(m.fecha) }}</td>
+              <td>
+                <span class="cell-strong">{{ descMov(m) }}</span>
+                <span v-if="m.medio_pago" class="cell-medio">{{ m.medio_pago }}</span>
+              </td>
+              <td class="num monto" :class="esPositivo(montoFirmado(m)) ? 'monto--pos' : 'monto--neg'">
+                <template v-if="esUsd(m)">
+                  {{ esPositivo(montoFirmado(m)) ? '+' : '' }}{{ fmtUsd(montoFirmadoOriginal(m)) }}
+                  <span class="monto-equiv">{{ fmt(montoFirmado(m)) }}</span>
+                </template>
+                <template v-else>{{ esPositivo(montoFirmado(m)) ? '+' : '' }}{{ fmt(montoFirmado(m)) }}</template>
+              </td>
+              <td class="num monto cell-saldo">{{ fmt(m.saldo_acumulado_ars) }}</td>
+              <td class="cell-acciones">
+                <div class="cell-acciones__inner">
+                <button type="button" class="icon-btn" title="Editar" @click="editarMov(m)">
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                    <path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10l7.5-7.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
+                  </svg>
+                </button>
+                <button type="button" class="icon-btn icon-btn--danger" title="Borrar" :disabled="borrandoId === m.id" @click="borrarMov(m)">
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                    <path d="M3 4h10M6.5 4V3h3v1M5 4l.5 9h5L11 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </div>
+
+    <div v-else-if="tab === 'presupuesto'" class="tabpanel">
+      <section class="panel">
+        <div class="panel__head split">
+          <span class="eyebrow">Ítems del presupuesto</span>
+          <div class="panel__head-actions">
+            <div class="toggle-prov">
+              <span>Proveedor en PDF</span>
+              <button type="button" class="switch" :class="{ 'switch--on': mostrarProveedor }" role="switch" :aria-checked="mostrarProveedor" @click="mostrarProveedor = !mostrarProveedor">
+                <span class="switch__knob"></span>
+              </button>
+            </div>
+            <div class="toggle-prov">
+              <span>Subtotales en PDF</span>
+              <button type="button" class="switch" :class="{ 'switch--on': mostrarSubtotales }" role="switch" :aria-checked="mostrarSubtotales" @click="mostrarSubtotales = !mostrarSubtotales">
+                <span class="switch__knob"></span>
+              </button>
+            </div>
+            <button class="btn btn--primary btn--sm" @click="itemFormOpen ? cancelarItem() : abrirAltaItem()">
+              <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+                <path v-if="itemFormOpen" d="M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                <path v-else d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+              </svg>
+              {{ itemFormOpen ? 'Cerrar' : 'Agregar ítem' }}
+            </button>
+          </div>
+        </div>
+
+        <form v-if="itemFormOpen" class="item-form" @submit.prevent="agregarItem">
+          <!-- Rubro + proveedor (autocompleta rubro) -->
+          <div class="item-form__row item-form__row--2">
+            <div class="field-group">
+              <label class="label">Rubro</label>
+              <RubroCombo v-model="formItem.rubro" placeholder="Ej: Albañilería" :invalid="!!errItem.rubro" @update:model-value="delete errItem.rubro" />
+              <span v-if="errItem.rubro" class="field-error">{{ errItem.rubro }}</span>
+            </div>
+            <div class="field-group">
+              <label class="label">Proveedor <span class="label-opt">(opcional)</span></label>
+              <SelectField v-model="formItem.proveedorId" :options="opcionesProveedorOpt" placeholder="Sin asignar" @change="onProveedorItem" />
+            </div>
+          </div>
+
+          <!-- Números: la cuenta costo + adicional → valor final -->
+          <fieldset class="item-form__money">
+            <div class="money-row">
+              <div class="field-group">
+                <label class="label">Costo del proveedor</label>
+                <input v-model="formItem.costo" type="number" class="field field--num" placeholder="0" @input="sugerirFinal" />
+              </div>
+
+              <span class="money-op">+</span>
+
+              <div class="field-group">
+                <div class="label-row">
+                  <label class="label">Adicional</label>
+                  <button type="button" class="switch" :class="{ 'switch--on': formItem.adicionalOn }" role="switch" :aria-checked="formItem.adicionalOn" @click="toggleAdicional">
+                    <span class="switch__knob"></span>
+                  </button>
+                </div>
+                <input v-model="formItem.adicional" type="number" class="field field--num" :class="{ 'field--off': !formItem.adicionalOn }" placeholder="0" :disabled="!formItem.adicionalOn" @input="sugerirFinal" />
+              </div>
+
+              <span class="money-op">=</span>
+
+              <div class="field-group">
+                <label class="label">Valor final</label>
+                <input v-model="formItem.valor" type="number" class="field field--num" :class="{ 'field--error': errItem.valor }" placeholder="0" @input="onValorInput" />
+                <span v-if="errItem.valor" class="field-error">{{ errItem.valor }}</span>
+              </div>
+            </div>
+
+            <p class="money-note">
+              <span><strong>Costo</strong> y <strong>adicional</strong> son internos, nunca salen en el presupuesto del cliente.</span>
+              <span>El <strong>valor final</strong> es lo que paga el cliente. Por defecto = costo + adicional ({{ fmt(presupuestoItem) }}).</span>
+            </p>
+          </fieldset>
+
+          <!-- Detalle + notas -->
+          <div class="item-form__row item-form__row--2">
+            <div class="field-group">
+              <label class="label">Detalle <span class="label-opt">(opcional)</span></label>
+              <input v-model="formItem.detalle" type="text" class="field" placeholder="Ej: Demolición y contrapiso" />
+            </div>
+            <div class="field-group">
+              <label class="label">Notas <span class="label-opt">(opcional, interno)</span></label>
+              <input v-model="formItem.notas" type="text" class="field" placeholder="Interno" />
+            </div>
+          </div>
+
+          <div class="item-form__actions">
+            <button type="submit" class="btn btn--primary" :disabled="guardandoItem">{{ guardandoItem ? 'Guardando…' : (editandoItemId ? 'Guardar cambios' : 'Agregar ítem') }}</button>
+          </div>
+        </form>
+
+        <p v-if="!items.length" class="estado-msg">Todavía no hay ítems en el presupuesto.</p>
+        <table v-else class="table">
+          <thead>
+            <tr>
+              <th style="width: 150px">Rubro</th>
+              <th style="width: 150px">Proveedor</th>
+              <th>Detalle</th>
+              <th class="num" style="width: 140px">Valor final</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <template v-for="(fila, i) in filasPresupuesto" :key="fila.tipo === 'item' ? fila.it.id : `sub-${i}`">
+              <tr v-if="fila.tipo === 'item'" :class="{ 'row--editando': editandoItemId === fila.it.id }">
+                <td class="cell-strong">{{ fila.it.rubro?.nombre || '—' }}</td>
+                <td class="cell-muted">{{ fila.it.proveedor?.nombre || '—' }}</td>
+                <td class="cell-muted">{{ fila.it.detalle || '—' }}</td>
+                <td class="num monto">{{ fmt(fila.it.valor_final_ars) }}</td>
+                <td class="cell-acciones">
+                  <div class="cell-acciones__inner">
+                    <button type="button" class="icon-btn" title="Editar" @click="editarItem(fila.it)">
+                      <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                        <path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10l7.5-7.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
+                      </svg>
+                    </button>
+                    <button type="button" class="icon-btn icon-btn--danger" title="Borrar" :disabled="borrandoItemId === fila.it.id" @click="borrarItem(fila.it)">
+                      <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                        <path d="M3 4h10M6.5 4V3h3v1M5 4l.5 9h5L11 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+                      </svg>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+              <tr v-else class="row--subtotal">
+                <td class="cell-subtotal-label" colspan="3">Subtotal {{ fila.rubro }}</td>
+                <td class="num monto">{{ fmt(fila.valor) }}</td>
+                <td></td>
+              </tr>
+            </template>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="3" class="cell-total-label">Subtotal</td>
+              <td class="num monto">{{ fmt(totalValorFinal) }}</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td colspan="3" class="cell-total-label">Honorarios 15%</td>
+              <td class="num monto monto--accent">{{ fmt(totalHonorarios) }}</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td colspan="3" class="cell-total-label">Total</td>
+              <td class="num monto cell-total">{{ fmt(totalPresupuesto) }}</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+
+        <ConfirmDialog
+          :open="!!itemABorrar"
+          titulo="¿Borrar ítem?"
+          mensaje="Esta acción no se puede deshacer."
+          confirmarTexto="Borrar"
+          :procesando="!!borrandoItemId"
+          @confirmar="confirmarBorrarItem"
+          @cerrar="itemABorrar = null"
+        />
+      </section>
+    </div>
+
+    <div v-else-if="tab === 'deuda'" class="tabpanel">
+      <section class="panel">
+        <div class="panel__head split">
+          <span class="eyebrow">Proveedores</span>
+          <div class="reparto__stats">
+            <span class="reparto__stat">Presupuestado <strong class="monto">{{ fmt(deudaTotal) }}</strong></span>
+            <span class="reparto__stat">Pagado <strong class="monto monto--pos">{{ fmt(pagadoTotal) }}</strong></span>
+            <span class="reparto__stat">Debo <strong class="monto monto--neg">{{ fmt(deudaTotal - pagadoTotal) }}</strong></span>
+          </div>
+        </div>
+
+        <p v-if="!deudaPorProveedor.length" class="estado-msg">Todavía no hay proveedores con presupuesto o pagos.</p>
+        <table v-else class="table table--deuda">
+          <thead>
+            <tr>
+              <th>Rubro</th>
+              <th>Proveedor</th>
+              <th class="num">Presupuestado</th>
+              <th class="num">Pagado</th>
+              <th class="num">Debo</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="p in deudaPorProveedor" :key="`${p.nombre}|${p.rubro}`">
+              <td class="cell-strong">{{ p.rubro }}</td>
+              <td class="cell-muted">{{ p.nombre }}</td>
+              <td class="num monto">{{ fmt(p.presupuestado) }}</td>
+              <td class="num monto monto--pos">{{ fmt(p.pagado) }}</td>
+              <td class="num monto" :class="{ 'debo-exceso': p.debo < 0 }">{{ fmt(p.debo) }}</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="2" class="cell-total-label">Total</td>
+              <td class="num monto">{{ fmt(deudaTotal) }}</td>
+              <td class="num monto monto--pos">{{ fmt(pagadoTotal) }}</td>
+              <td class="num monto cell-total">{{ fmt(deudaTotal - pagadoTotal) }}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </section>
+    </div>
+
+    <div v-else class="tabpanel">
+      <section class="panel reparto">
+        <div class="reparto__top">
+          <span class="eyebrow">Reparto entre socias</span>
+          <div class="reparto__stats">
+            <span class="reparto__stat">Disponible <strong class="monto" :class="esPositivo(cvg.disponible_retiro_ars) ? 'monto--pos' : 'monto--neg'">{{ fmt(cvg.disponible_retiro_ars) }}</strong></span>
+            <span class="reparto__stat">Honorarios 15% <strong class="monto">{{ fmt(cvg.ganancia_cobrada_ars) }}</strong></span>
+          </div>
+        </div>
+
+        <div class="reparto__bars">
+          <div v-for="soc in reparto" :key="soc.key" class="progress">
+            <div class="progress__head">
+              <span class="progress__name">{{ soc.nombre }} <span class="progress__target">{{ Math.round(soc.split * 100) }}%</span></span>
+              <span class="progress__val monto">{{ fmt(soc.retirado) }} <span class="progress__target">/ {{ fmt(soc.target) }}</span></span>
+            </div>
+            <div class="progress__track"><div class="progress__fill" :class="`progress__fill--${soc.key}`" :style="{ width: soc.width }"></div></div>
+          </div>
+        </div>
+
+        <p v-if="faltantes.length" class="reparto__note">Para emparejar, {{ textoFaltantes }}.</p>
+        <p v-else class="reparto__note reparto__note--ok">Los retiros están emparejados según el reparto de la obra.</p>
+      </section>
+
+      <section class="panel">
+        <div class="panel__head split">
+          <span class="eyebrow">Retiros</span>
+          <button class="btn btn--primary btn--sm" @click="retiroFormOpen ? cancelarRetiro() : abrirAltaRetiro()">
+            <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+              <path v-if="retiroFormOpen" d="M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+              <path v-else d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+            {{ retiroFormOpen ? 'Cerrar' : 'Registrar retiro' }}
+          </button>
+        </div>
+
+        <form v-if="retiroFormOpen" class="mov-form" @submit.prevent="registrarRetiro">
+          <div class="field-group">
+            <label class="label">Total a retirar</label>
+            <input v-model="formRetiro.total" type="number" class="field field--num" placeholder="0" @input="repartirTotal" />
+            <span class="hint">Prellena según el reparto de la obra. Podés ajustar cada monto abajo.</span>
+          </div>
+          <div class="field-group">
+            <label class="label">Fecha</label>
+            <DateField v-model="formRetiro.fecha" :invalid="!!errRetiro.fecha" @update:model-value="delete errRetiro.fecha" />
+            <span v-if="errRetiro.fecha" class="field-error">{{ errRetiro.fecha }}</span>
+          </div>
+          <div v-for="soc in sociasRetiro" :key="soc.key" class="field-group">
+            <label class="label">{{ soc.nombre }}</label>
+            <input v-model="formRetiro.montos[soc.key]" type="number" class="field field--num" :class="{ 'field--error': errRetiro.monto }" placeholder="0" @input="delete errRetiro.monto" />
+          </div>
+          <span v-if="errRetiro.monto" class="field-error field-error--full">{{ errRetiro.monto }}</span>
+          <div class="field-group col-submit">
+            <button type="submit" class="btn btn--primary" :disabled="guardandoRetiro">{{ guardandoRetiro ? 'Guardando…' : (editandoRetiroId ? 'Guardar cambios' : 'Registrar retiro') }}</button>
+          </div>
+        </form>
+
+        <p v-if="!retiros.length" class="estado-msg">Todavía no hay retiros en esta obra.</p>
+        <table v-else class="table">
+          <thead>
+            <tr>
+              <th style="width: 92px">Fecha</th>
+              <th v-for="soc in sociasRetiro" :key="soc.key" class="num">{{ soc.nombre }}</th>
+              <th class="num" style="width: 150px">Total</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in retiros" :key="r.id" :class="{ 'row--editando': editandoRetiroId === r.id }">
+              <td class="cell-date">{{ fmtFecha(r.fecha) }}</td>
+              <td v-for="soc in sociasRetiro" :key="soc.key" class="num monto">{{ fmt(montoSocia(r, soc.key)) }}</td>
+              <td class="num monto cell-saldo">{{ fmt(totalRetiro(r)) }}</td>
+              <td class="cell-acciones">
+                <div class="cell-acciones__inner">
+                  <button type="button" class="icon-btn" title="Editar" @click="editarRetiro(r)">
+                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                      <path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10l7.5-7.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
+                    </svg>
+                  </button>
+                  <button type="button" class="icon-btn icon-btn--danger" title="Borrar" :disabled="borrandoRetiroId === r.id" @click="borrarRetiro(r)">
+                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                      <path d="M3 4h10M6.5 4V3h3v1M5 4l.5 9h5L11 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </div>
+
+    <!-- Documentos: ocultos en pantalla, solo aparece al imprimir el que está activo (Exportar) -->
+    <div class="solo-print">
+      <DocumentoPresupuesto
+        v-if="docActivo === 'presupuesto'"
+        :obra="obra"
+        :items="itemsExport"
+        :mostrar-proveedor="mostrarProveedor"
+        :mostrar-subtotales="mostrarSubtotales"
+      />
+      <DocumentoReporte
+        v-else-if="docActivo === 'cobros'"
+        :obra="obra"
+        titulo="Pagos recibidos"
+        :columnas="[
+          { key: 'fecha', label: 'Fecha' },
+          { key: 'medio', label: 'Medio' },
+          { key: 'monto', label: 'Monto', num: true },
+        ]"
+        :filas="filasCobros"
+        :totales="[{ label: 'Total recibido', valor: totalCobros }]"
+      />
+      <DocumentoReporte
+        v-else-if="docActivo === 'pagos'"
+        :obra="obra"
+        titulo="Pagos a proveedores"
+        :columnas="[
+          { key: 'fecha', label: 'Fecha' },
+          { key: 'proveedor', label: 'Proveedor' },
+          { key: 'medio', label: 'Medio' },
+          { key: 'monto', label: 'Monto', num: true },
+        ]"
+        :filas="filasPagos"
+        :totales="[{ label: 'Total pagado', valor: totalPagos }]"
+      />
+      <template v-else-if="docActivo === 'proveedor'">
+        <DocumentoReporte
+          :obra="obra"
+          titulo="Detalle de proveedor · Presupuestado"
+          :subtitulo="proveedorReporte?.nombre || ''"
+          :columnas="[
+            { key: 'rubro', label: 'Rubro' },
+            { key: 'detalle', label: 'Detalle' },
+            { key: 'monto', label: 'Monto', num: true },
+          ]"
+          :filas="itemsDelProveedor"
+          :totales="[
+            { label: 'Presupuestado', valor: presupuestadoProveedor },
+            { label: 'Pagado', valor: pagadoProveedor },
+            { label: 'Saldo', valor: presupuestadoProveedor - pagadoProveedor },
+          ]"
+        />
+      </template>
+    </div>
+  </div>
+</template>
+
 <script setup>
 import { fmtArs as fmt, fmtUsd, fmtFecha, agruparPorRubro } from '~/composables/useFormato'
+import { SOCIAS, sociasDeObra } from '~/composables/useSocias'
 
 const route = useRoute()
 const db = useDb()
@@ -421,39 +967,61 @@ async function confirmarBorrarItem() {
   }
 }
 
-// ─── Retiros: convergencia 50/50 ───────────────────────────────────────────
+// ─── Retiros: convergencia al reparto de la obra ───────────────────────────
+// Socias con columna en la tabla/form: las activas en la obra + las que ya tengan retiros.
+const sociasRetiro = computed(() => {
+  const activas = sociasDeObra(obra.value).map((s) => s.key)
+  return SOCIAS.filter((s) => activas.includes(s.key) || retiros.value.some((r) => Number(r[`monto_${s.key}`])))
+})
+function montoSocia(r, key) {
+  return Number(r[`monto_${key}`] || 0) * Number(r.tipo_cambio)
+}
+function totalRetiro(r) {
+  return SOCIAS.reduce((a, s) => a + montoSocia(r, s.key), 0)
+}
 const cvg = computed(() => ({
   ganancia_cobrada_ars: Number(convergencia.value?.ganancia_cobrada_ars ?? 0),
   disponible_retiro_ars: Number(convergencia.value?.disponible_para_retirar_ars ?? 0),
-  total_retiros_nancy_ars: Number(convergencia.value?.total_retiros_nancy_ars ?? 0),
-  total_retiros_sol_ars: Number(convergencia.value?.total_retiros_sol_ars ?? 0),
-  target_nancy_ars: Number(convergencia.value?.target_nancy_ars ?? 0),
-  target_sol_ars: Number(convergencia.value?.target_sol_ars ?? 0),
 }))
-const nancyWidth = computed(() => {
-  const t = cvg.value.target_nancy_ars
-  return (t > 0 ? Math.min(100, (cvg.value.total_retiros_nancy_ars / t) * 100) : 0) + '%'
+// Por socia activa: split, retirado y target (= ganancia cobrada × split).
+const reparto = computed(() => {
+  const activas = sociasDeObra(obra.value)
+  return activas.map((s) => {
+    // Sin override: reparto parejo entre las activas.
+    const split = Number(obra.value[`split_${s.key}_override`] ?? 1 / activas.length)
+    const retirado = retiros.value.reduce((a, r) => a + montoSocia(r, s.key), 0)
+    const target = cvg.value.ganancia_cobrada_ars * split
+    const width = (target ? Math.min(100, Math.max(0, (retirado / target) * 100)) : 0) + '%'
+    return { ...s, split, retirado, target, width }
+  })
 })
-const solWidth = computed(() => {
-  const t = cvg.value.target_sol_ars
-  return (t > 0 ? Math.min(100, (cvg.value.total_retiros_sol_ars / t) * 100) : 0) + '%'
+// Para emparejar: la que más retiró respecto de su split marca el ritmo; al resto le falta
+// llegar a ese mismo ritmo (ritmo × split − retirado).
+const faltantes = computed(() => {
+  const conSplit = reparto.value.filter((s) => s.split)
+  const ritmo = Math.max(0, ...conSplit.map((s) => s.retirado / s.split))
+  return conSplit
+    .map((s) => ({ nombre: s.nombre, falta: Math.round(ritmo * s.split - s.retirado) }))
+    .filter((s) => Math.sign(s.falta) === 1)
 })
-const difSocias = computed(() => Math.abs(cvg.value.total_retiros_nancy_ars - cvg.value.total_retiros_sol_ars))
-const socioAtras = computed(() =>
-  cvg.value.total_retiros_nancy_ars >= cvg.value.total_retiros_sol_ars ? 'Solana' : 'Nancy',
-)
+const textoFaltantes = computed(() => faltantes.value.map((f) => `${f.nombre} debería retirar ${fmt(f.falta)} más`).join(' y '))
 
 const retiroFormOpen = ref(false)
 const guardandoRetiro = ref(false)
 const editandoRetiroId = ref(null)
-// Total a retirar + reparto 50/50 editable: al tipear el total, prellena mitad y mitad.
-const formRetiroVacio = () => ({ total: '', nancy: '', sol: '', fecha: fechaHoy })
+// Total a retirar + reparto editable: al tipear el total, prellena según el split de la obra.
+const formRetiroVacio = () => ({ total: '', montos: {}, fecha: fechaHoy })
 const formRetiro = reactive(formRetiroVacio())
-function repartir5050() {
+function repartirTotal() {
   const t = Number(formRetiro.total) || 0
-  const mitad = Math.round((t / 2) * 100) / 100
-  formRetiro.nancy = t ? String(mitad) : ''
-  formRetiro.sol = t ? String(t - mitad) : ''
+  const activas = reparto.value
+  let asignado = 0
+  activas.forEach((s, i) => {
+    // La última se lleva el resto para que la suma dé exacto el total.
+    const monto = i === activas.length - 1 ? t - asignado : Math.round(t * s.split * 100) / 100
+    asignado += monto
+    formRetiro.montos[s.key] = t ? String(monto) : ''
+  })
   delete errRetiro.monto
 }
 const errRetiro = reactive({})
@@ -466,12 +1034,9 @@ function abrirAltaRetiro() {
 }
 function editarRetiro(r) {
   editandoRetiroId.value = r.id
-  const nancy = Number(r.monto_nancy) || 0
-  const sol = Number(r.monto_sol) || 0
   Object.assign(formRetiro, {
-    total: String(nancy + sol),
-    nancy: String(nancy),
-    sol: String(sol),
+    total: String(SOCIAS.reduce((a, s) => a + (Number(r[`monto_${s.key}`]) || 0), 0)),
+    montos: Object.fromEntries(SOCIAS.map((s) => [s.key, String(Number(r[`monto_${s.key}`]) || 0)])),
     fecha: r.fecha,
   })
   Object.keys(errRetiro).forEach((k) => delete errRetiro[k])
@@ -486,9 +1051,8 @@ function cancelarRetiro() {
 
 async function registrarRetiro() {
   Object.keys(errRetiro).forEach((k) => delete errRetiro[k])
-  const totalNancy = Number(formRetiro.nancy) || 0
-  const totalSol = Number(formRetiro.sol) || 0
-  if (totalNancy <= 0 && totalSol <= 0) errRetiro.monto = 'Ingresá un retiro para Nancy o para Solana.'
+  const montos = Object.fromEntries(SOCIAS.map((s) => [`monto_${s.key}`, Number(formRetiro.montos[s.key]) || 0]))
+  if (!Object.values(montos).some((m) => Math.sign(m) === 1)) errRetiro.monto = 'Ingresá un monto para al menos una persona.'
   if (!formRetiro.fecha) errRetiro.fecha = 'Elegí la fecha.'
   if (Object.keys(errRetiro).length) return
 
@@ -496,8 +1060,7 @@ async function registrarRetiro() {
   try {
     const payload = {
       fecha: formRetiro.fecha,
-      monto_nancy: totalNancy,
-      monto_sol: totalSol,
+      ...montos,
       moneda: 'ARS',
       tipo_cambio: 1,
     }
@@ -652,566 +1215,6 @@ function cambiarTab(id) {
   retiroFormOpen.value = false
 }
 </script>
-
-<template>
-  <div class="shell">
-    <header class="page-header page-header--plain">
-      <NuxtLink to="/" class="back">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <path d="M9 2L4 7l5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
-        Obras
-      </NuxtLink>
-      <div class="page-header__row">
-        <div class="page-header__titles">
-          <template v-if="cargando">
-            <Skeleton width="240px" height="28px" />
-            <Skeleton width="140px" height="15px" radius="4px" />
-          </template>
-          <template v-else>
-            <h1 class="title">{{ obra.nombre_direccion }}</h1>
-            <p class="obra-meta">
-              {{ obra.cliente?.nombre }}
-              <span class="dot" :class="'dot--' + obra.estado"></span>
-              {{ obra.estado }}
-            </p>
-          </template>
-        </div>
-        <div class="page-header__actions">
-          <NuxtLink :to="'/obras/' + (obra.slug || obra.id) + '/configuracion'" class="btn btn--secondary">Configuración</NuxtLink>
-          <details ref="exportMenu" class="export-menu">
-            <summary class="btn btn--primary" :aria-disabled="exportando">Exportar</summary>
-            <div class="export-menu__panel">
-              <button type="button" class="export-menu__item" @click="elegirExport('presupuesto')">Presupuesto</button>
-              <button type="button" class="export-menu__item" @click="elegirExport('cobros')">Pagos recibidos</button>
-              <button type="button" class="export-menu__item" @click="elegirExport('pagos')">Pagos a proveedores</button>
-              <div class="export-menu__sep"></div>
-              <span class="export-menu__label">Detalle de proveedor</span>
-              <SelectField
-                v-model="proveedorReporteId"
-                :options="opcionesProveedor"
-                placeholder="Elegí proveedor"
-                @update:model-value="exportarProveedor"
-              />
-            </div>
-          </details>
-        </div>
-      </div>
-    </header>
-
-    <!-- Bloque de control contable (Excel, hoja Caja). Las 5 líneas deben sumar 0. -->
-    <div class="control">
-      <div class="control__rows">
-        <div class="control__row">
-          <span class="control__label">Saldo a cobrar del cliente</span>
-          <Skeleton v-if="cargando" width="120px" height="20px" />
-          <span v-else class="control__value monto">{{ fmt(control.aCobrar) }}</span>
-        </div>
-        <div class="control__row">
-          <span class="control__label">Saldo en caja</span>
-          <Skeleton v-if="cargando" width="120px" height="20px" />
-          <span v-else class="control__value monto">{{ fmt(control.saldoCaja) }}</span>
-        </div>
-        <div class="control__row">
-          <span class="control__label">Deuda a proveedores</span>
-          <Skeleton v-if="cargando" width="120px" height="20px" />
-          <span v-else class="control__value monto">{{ fmt(control.deudaProveedores) }}</span>
-        </div>
-        <div class="control__row">
-          <span class="control__label">Adicionales</span>
-          <Skeleton v-if="cargando" width="120px" height="20px" />
-          <span v-else class="control__value monto">{{ fmt(control.adicionales) }}</span>
-        </div>
-        <div class="control__row">
-          <span class="control__label">Saldo de honorarios a retirar</span>
-          <Skeleton v-if="cargando" width="120px" height="20px" />
-          <span v-else class="control__value monto">{{ fmt(control.honorariosRetirar) }}</span>
-        </div>
-      </div>
-      <div class="control__total" :class="cargando ? '' : (controlOk ? 'control__total--ok' : 'control__total--error')">
-        <span class="control__label">
-          Control
-          <span v-if="!cargando && !controlOk" class="control__flag">SI NO ES 0 HAY ERROR</span>
-        </span>
-        <Skeleton v-if="cargando" width="120px" height="20px" />
-        <span v-else class="control__value monto">{{ fmt(control.total) }}</span>
-      </div>
-    </div>
-
-    <div class="tabs" role="tablist">
-      <button v-for="t in tabs" :key="t.id" type="button" class="tab" :class="{ 'tab--active': tab === t.id }" @click="cambiarTab(t.id)">{{ t.label }}</button>
-    </div>
-
-    <div v-if="tab === 'caja'" class="tabpanel">
-      <section class="panel">
-        <div class="panel__head split">
-          <span class="eyebrow">Movimientos</span>
-          <button class="btn btn--primary btn--sm" @click="cajaFormOpen ? cancelarMov() : abrirAltaMov()">
-            <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-              <path v-if="cajaFormOpen" d="M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-              <path v-else d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-            </svg>
-            {{ cajaFormOpen ? 'Cerrar' : 'Registrar movimiento' }}
-          </button>
-        </div>
-
-        <form v-if="cajaFormOpen" class="mov-form" @submit.prevent="agregarMovimiento">
-          <div class="field-group col-tipo">
-            <label class="label">Tipo</label>
-            <SelectField v-model="formMov.tipo" :options="opcionesTipo" placeholder="Seleccioná tipo" :invalid="!!errMov.tipo" @change="delete errMov.tipo" />
-            <span v-if="errMov.tipo" class="field-error">{{ errMov.tipo }}</span>
-          </div>
-          <div v-if="esPago" class="field-group col-prov">
-            <label class="label">Proveedor</label>
-            <SelectField v-model="formMov.proveedorId" :options="opcionesProveedor" placeholder="Seleccioná proveedor" :invalid="!!errMov.proveedor" @change="delete errMov.proveedor" />
-            <span v-if="errMov.proveedor" class="field-error">{{ errMov.proveedor }}</span>
-          </div>
-          <div class="field-group col-monto">
-            <label class="label">Monto</label>
-            <div class="monto-input">
-              <input v-model="formMov.monto" type="number" class="field field--num" :class="{ 'field--error': errMov.monto }" placeholder="0" @input="delete errMov.monto" />
-              <button type="button" class="moneda-toggle" :class="{ 'moneda-toggle--on': enDolares }" @click="enDolares = !enDolares">
-                {{ enDolares ? 'US$' : '$' }}
-              </button>
-            </div>
-            <span v-if="errMov.monto" class="field-error">{{ errMov.monto }}</span>
-          </div>
-          <div class="field-group col-fecha">
-            <label class="label">Fecha</label>
-            <DateField v-model="formMov.fecha" :invalid="!!errMov.fecha" @update:model-value="delete errMov.fecha" />
-            <span v-if="errMov.fecha" class="field-error">{{ errMov.fecha }}</span>
-          </div>
-          <div v-if="enDolares" class="field-group col-medio">
-            <label class="label">Valor dólar</label>
-            <input v-model="formMov.tcManual" type="number" class="field field--num" :class="{ 'field--error': errMov.tcManual }" placeholder="Ej: 1200" @input="delete errMov.tcManual" />
-            <span v-if="errMov.tcManual" class="field-error">{{ errMov.tcManual }}</span>
-            <span v-else-if="equivPesos != null" class="field-hint">= {{ fmt(equivPesos) }}</span>
-          </div>
-          <div v-else class="field-group col-medio">
-            <label class="label">Medio de pago</label>
-            <SelectField v-model="formMov.medio" :options="opcionesMedio" placeholder="Seleccioná medio" :invalid="!!errMov.medio" @change="delete errMov.medio" />
-            <span v-if="errMov.medio" class="field-error">{{ errMov.medio }}</span>
-          </div>
-          <div class="field-group col-submit">
-            <button type="submit" class="btn btn--primary" :disabled="guardandoMov">{{ guardandoMov ? 'Guardando…' : (editandoId ? 'Guardar cambios' : 'Agregar movimiento') }}</button>
-          </div>
-        </form>
-
-        <p v-if="!movimientos.length" class="estado-msg">Todavía no hay movimientos en esta obra.</p>
-        <table v-else class="table table--caja">
-          <thead>
-            <tr>
-              <th>Fecha</th>
-              <th>Detalle</th>
-              <th class="num">Monto</th>
-              <th class="num">Saldo</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="m in movimientos" :key="m.id" :class="{ 'row--editando': editandoId === m.id }">
-              <td class="cell-date">{{ fmtFecha(m.fecha) }}</td>
-              <td>
-                <span class="cell-strong">{{ descMov(m) }}</span>
-                <span v-if="m.medio_pago" class="cell-medio">{{ m.medio_pago }}</span>
-              </td>
-              <td class="num monto" :class="esPositivo(montoFirmado(m)) ? 'monto--pos' : 'monto--neg'">
-                <template v-if="esUsd(m)">
-                  {{ esPositivo(montoFirmado(m)) ? '+' : '' }}{{ fmtUsd(montoFirmadoOriginal(m)) }}
-                  <span class="monto-equiv">{{ fmt(montoFirmado(m)) }}</span>
-                </template>
-                <template v-else>{{ esPositivo(montoFirmado(m)) ? '+' : '' }}{{ fmt(montoFirmado(m)) }}</template>
-              </td>
-              <td class="num monto cell-saldo">{{ fmt(m.saldo_acumulado_ars) }}</td>
-              <td class="cell-acciones">
-                <div class="cell-acciones__inner">
-                <button type="button" class="icon-btn" title="Editar" @click="editarMov(m)">
-                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-                    <path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10l7.5-7.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
-                  </svg>
-                </button>
-                <button type="button" class="icon-btn icon-btn--danger" title="Borrar" :disabled="borrandoId === m.id" @click="borrarMov(m)">
-                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-                    <path d="M3 4h10M6.5 4V3h3v1M5 4l.5 9h5L11 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
-                  </svg>
-                </button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
-    </div>
-
-    <div v-else-if="tab === 'presupuesto'" class="tabpanel">
-      <section class="panel">
-        <div class="panel__head split">
-          <span class="eyebrow">Ítems del presupuesto</span>
-          <div class="panel__head-actions">
-            <div class="toggle-prov">
-              <span>Proveedor en PDF</span>
-              <button type="button" class="switch" :class="{ 'switch--on': mostrarProveedor }" role="switch" :aria-checked="mostrarProveedor" @click="mostrarProveedor = !mostrarProveedor">
-                <span class="switch__knob"></span>
-              </button>
-            </div>
-            <div class="toggle-prov">
-              <span>Subtotales en PDF</span>
-              <button type="button" class="switch" :class="{ 'switch--on': mostrarSubtotales }" role="switch" :aria-checked="mostrarSubtotales" @click="mostrarSubtotales = !mostrarSubtotales">
-                <span class="switch__knob"></span>
-              </button>
-            </div>
-            <button class="btn btn--primary btn--sm" @click="itemFormOpen ? cancelarItem() : abrirAltaItem()">
-              <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-                <path v-if="itemFormOpen" d="M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-                <path v-else d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-              </svg>
-              {{ itemFormOpen ? 'Cerrar' : 'Agregar ítem' }}
-            </button>
-          </div>
-        </div>
-
-        <form v-if="itemFormOpen" class="item-form" @submit.prevent="agregarItem">
-          <!-- Rubro + proveedor (autocompleta rubro) -->
-          <div class="item-form__row item-form__row--2">
-            <div class="field-group">
-              <label class="label">Rubro</label>
-              <RubroCombo v-model="formItem.rubro" placeholder="Ej: Albañilería" :invalid="!!errItem.rubro" @update:model-value="delete errItem.rubro" />
-              <span v-if="errItem.rubro" class="field-error">{{ errItem.rubro }}</span>
-            </div>
-            <div class="field-group">
-              <label class="label">Proveedor <span class="label-opt">(opcional)</span></label>
-              <SelectField v-model="formItem.proveedorId" :options="opcionesProveedorOpt" placeholder="Sin asignar" @change="onProveedorItem" />
-            </div>
-          </div>
-
-          <!-- Números: la cuenta costo + adicional → valor final -->
-          <fieldset class="item-form__money">
-            <div class="money-row">
-              <div class="field-group">
-                <label class="label">Costo del proveedor</label>
-                <input v-model="formItem.costo" type="number" class="field field--num" placeholder="0" @input="sugerirFinal" />
-              </div>
-
-              <span class="money-op">+</span>
-
-              <div class="field-group">
-                <div class="label-row">
-                  <label class="label">Adicional</label>
-                  <button type="button" class="switch" :class="{ 'switch--on': formItem.adicionalOn }" role="switch" :aria-checked="formItem.adicionalOn" @click="toggleAdicional">
-                    <span class="switch__knob"></span>
-                  </button>
-                </div>
-                <input v-model="formItem.adicional" type="number" class="field field--num" :class="{ 'field--off': !formItem.adicionalOn }" placeholder="0" :disabled="!formItem.adicionalOn" @input="sugerirFinal" />
-              </div>
-
-              <span class="money-op">=</span>
-
-              <div class="field-group">
-                <label class="label">Valor final</label>
-                <input v-model="formItem.valor" type="number" class="field field--num" :class="{ 'field--error': errItem.valor }" placeholder="0" @input="onValorInput" />
-                <span v-if="errItem.valor" class="field-error">{{ errItem.valor }}</span>
-              </div>
-            </div>
-
-            <p class="money-note">
-              <span><strong>Costo</strong> y <strong>adicional</strong> son internos, nunca salen en el presupuesto del cliente.</span>
-              <span>El <strong>valor final</strong> es lo que paga el cliente. Por defecto = costo + adicional ({{ fmt(presupuestoItem) }}).</span>
-            </p>
-          </fieldset>
-
-          <!-- Detalle + notas -->
-          <div class="item-form__row item-form__row--2">
-            <div class="field-group">
-              <label class="label">Detalle <span class="label-opt">(opcional)</span></label>
-              <input v-model="formItem.detalle" type="text" class="field" placeholder="Ej: Demolición y contrapiso" />
-            </div>
-            <div class="field-group">
-              <label class="label">Notas <span class="label-opt">(opcional, interno)</span></label>
-              <input v-model="formItem.notas" type="text" class="field" placeholder="Interno" />
-            </div>
-          </div>
-
-          <div class="item-form__actions">
-            <button type="submit" class="btn btn--primary" :disabled="guardandoItem">{{ guardandoItem ? 'Guardando…' : (editandoItemId ? 'Guardar cambios' : 'Agregar ítem') }}</button>
-          </div>
-        </form>
-
-        <p v-if="!items.length" class="estado-msg">Todavía no hay ítems en el presupuesto.</p>
-        <table v-else class="table">
-          <thead>
-            <tr>
-              <th style="width: 150px">Rubro</th>
-              <th style="width: 150px">Proveedor</th>
-              <th>Detalle</th>
-              <th class="num" style="width: 140px">Valor final</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <template v-for="(fila, i) in filasPresupuesto" :key="fila.tipo === 'item' ? fila.it.id : `sub-${i}`">
-              <tr v-if="fila.tipo === 'item'" :class="{ 'row--editando': editandoItemId === fila.it.id }">
-                <td class="cell-strong">{{ fila.it.rubro?.nombre || '—' }}</td>
-                <td class="cell-muted">{{ fila.it.proveedor?.nombre || '—' }}</td>
-                <td class="cell-muted">{{ fila.it.detalle || '—' }}</td>
-                <td class="num monto">{{ fmt(fila.it.valor_final_ars) }}</td>
-                <td class="cell-acciones">
-                  <div class="cell-acciones__inner">
-                    <button type="button" class="icon-btn" title="Editar" @click="editarItem(fila.it)">
-                      <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-                        <path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10l7.5-7.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
-                      </svg>
-                    </button>
-                    <button type="button" class="icon-btn icon-btn--danger" title="Borrar" :disabled="borrandoItemId === fila.it.id" @click="borrarItem(fila.it)">
-                      <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-                        <path d="M3 4h10M6.5 4V3h3v1M5 4l.5 9h5L11 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
-                      </svg>
-                    </button>
-                  </div>
-                </td>
-              </tr>
-              <tr v-else class="row--subtotal">
-                <td class="cell-subtotal-label" colspan="3">Subtotal {{ fila.rubro }}</td>
-                <td class="num monto">{{ fmt(fila.valor) }}</td>
-                <td></td>
-              </tr>
-            </template>
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colspan="3" class="cell-total-label">Subtotal</td>
-              <td class="num monto">{{ fmt(totalValorFinal) }}</td>
-              <td></td>
-            </tr>
-            <tr>
-              <td colspan="3" class="cell-total-label">Honorarios 15%</td>
-              <td class="num monto monto--accent">{{ fmt(totalHonorarios) }}</td>
-              <td></td>
-            </tr>
-            <tr>
-              <td colspan="3" class="cell-total-label">Total</td>
-              <td class="num monto cell-total">{{ fmt(totalPresupuesto) }}</td>
-              <td></td>
-            </tr>
-          </tfoot>
-        </table>
-
-        <ConfirmDialog
-          :open="!!itemABorrar"
-          titulo="¿Borrar ítem?"
-          mensaje="Esta acción no se puede deshacer."
-          confirmarTexto="Borrar"
-          :procesando="!!borrandoItemId"
-          @confirmar="confirmarBorrarItem"
-          @cerrar="itemABorrar = null"
-        />
-      </section>
-    </div>
-
-    <div v-else-if="tab === 'deuda'" class="tabpanel">
-      <section class="panel">
-        <div class="panel__head split">
-          <span class="eyebrow">Proveedores</span>
-          <div class="reparto__stats">
-            <span class="reparto__stat">Presupuestado <strong class="monto">{{ fmt(deudaTotal) }}</strong></span>
-            <span class="reparto__stat">Pagado <strong class="monto monto--pos">{{ fmt(pagadoTotal) }}</strong></span>
-            <span class="reparto__stat">Debo <strong class="monto monto--neg">{{ fmt(deudaTotal - pagadoTotal) }}</strong></span>
-          </div>
-        </div>
-
-        <p v-if="!deudaPorProveedor.length" class="estado-msg">Todavía no hay proveedores con presupuesto o pagos.</p>
-        <table v-else class="table table--deuda">
-          <thead>
-            <tr>
-              <th>Rubro</th>
-              <th>Proveedor</th>
-              <th class="num">Presupuestado</th>
-              <th class="num">Pagado</th>
-              <th class="num">Debo</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="p in deudaPorProveedor" :key="`${p.nombre}|${p.rubro}`">
-              <td class="cell-strong">{{ p.rubro }}</td>
-              <td class="cell-muted">{{ p.nombre }}</td>
-              <td class="num monto">{{ fmt(p.presupuestado) }}</td>
-              <td class="num monto monto--pos">{{ fmt(p.pagado) }}</td>
-              <td class="num monto" :class="{ 'debo-exceso': p.debo < 0 }">{{ fmt(p.debo) }}</td>
-            </tr>
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colspan="2" class="cell-total-label">Total</td>
-              <td class="num monto">{{ fmt(deudaTotal) }}</td>
-              <td class="num monto monto--pos">{{ fmt(pagadoTotal) }}</td>
-              <td class="num monto cell-total">{{ fmt(deudaTotal - pagadoTotal) }}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </section>
-    </div>
-
-    <div v-else class="tabpanel">
-      <section class="panel reparto">
-        <div class="reparto__top">
-          <span class="eyebrow">Reparto entre socias</span>
-          <div class="reparto__stats">
-            <span class="reparto__stat">Disponible <strong class="monto" :class="esPositivo(cvg.disponible_retiro_ars) ? 'monto--pos' : 'monto--neg'">{{ fmt(cvg.disponible_retiro_ars) }}</strong></span>
-            <span class="reparto__stat">Honorarios 15% <strong class="monto">{{ fmt(cvg.ganancia_cobrada_ars) }}</strong></span>
-          </div>
-        </div>
-
-        <div class="reparto__bars">
-          <div class="progress">
-            <div class="progress__head">
-              <span class="progress__name">Nancy</span>
-              <span class="progress__val monto">{{ fmt(cvg.total_retiros_nancy_ars) }} <span class="progress__target">/ {{ fmt(cvg.target_nancy_ars) }}</span></span>
-            </div>
-            <div class="progress__track"><div class="progress__fill progress__fill--nancy" :style="{ width: nancyWidth }"></div></div>
-          </div>
-          <div class="progress">
-            <div class="progress__head">
-              <span class="progress__name">Solana</span>
-              <span class="progress__val monto">{{ fmt(cvg.total_retiros_sol_ars) }} <span class="progress__target">/ {{ fmt(cvg.target_sol_ars) }}</span></span>
-            </div>
-            <div class="progress__track"><div class="progress__fill progress__fill--sol" :style="{ width: solWidth }"></div></div>
-          </div>
-        </div>
-
-        <p v-if="difSocias" class="reparto__note">
-          Para emparejar, <strong>{{ socioAtras }}</strong> debería retirar {{ fmt(difSocias) }} más.
-        </p>
-        <p v-else class="reparto__note reparto__note--ok">Los retiros están emparejados al 50/50.</p>
-      </section>
-
-      <section class="panel">
-        <div class="panel__head split">
-          <span class="eyebrow">Retiros</span>
-          <button class="btn btn--primary btn--sm" @click="retiroFormOpen ? cancelarRetiro() : abrirAltaRetiro()">
-            <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-              <path v-if="retiroFormOpen" d="M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-              <path v-else d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-            </svg>
-            {{ retiroFormOpen ? 'Cerrar' : 'Registrar retiro' }}
-          </button>
-        </div>
-
-        <form v-if="retiroFormOpen" class="mov-form" @submit.prevent="registrarRetiro">
-          <div class="field-group">
-            <label class="label">Total a retirar</label>
-            <input v-model="formRetiro.total" type="number" class="field field--num" placeholder="0" @input="repartir5050" />
-            <span class="hint">Prellena 50/50. Podés ajustar cada monto abajo.</span>
-          </div>
-          <div class="field-group">
-            <label class="label">Fecha</label>
-            <DateField v-model="formRetiro.fecha" :invalid="!!errRetiro.fecha" @update:model-value="delete errRetiro.fecha" />
-            <span v-if="errRetiro.fecha" class="field-error">{{ errRetiro.fecha }}</span>
-          </div>
-          <div class="field-group">
-            <label class="label">Nancy</label>
-            <input v-model="formRetiro.nancy" type="number" class="field field--num" :class="{ 'field--error': errRetiro.monto }" placeholder="0" @input="delete errRetiro.monto" />
-          </div>
-          <div class="field-group">
-            <label class="label">Solana</label>
-            <input v-model="formRetiro.sol" type="number" class="field field--num" :class="{ 'field--error': errRetiro.monto }" placeholder="0" @input="delete errRetiro.monto" />
-          </div>
-          <span v-if="errRetiro.monto" class="field-error field-error--full">{{ errRetiro.monto }}</span>
-          <div class="field-group col-submit">
-            <button type="submit" class="btn btn--primary" :disabled="guardandoRetiro">{{ guardandoRetiro ? 'Guardando…' : (editandoRetiroId ? 'Guardar cambios' : 'Registrar retiro') }}</button>
-          </div>
-        </form>
-
-        <p v-if="!retiros.length" class="estado-msg">Todavía no hay retiros en esta obra.</p>
-        <table v-else class="table">
-          <thead>
-            <tr>
-              <th style="width: 92px">Fecha</th>
-              <th class="num">Nancy</th>
-              <th class="num">Solana</th>
-              <th class="num" style="width: 150px">Total</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="r in retiros" :key="r.id" :class="{ 'row--editando': editandoRetiroId === r.id }">
-              <td class="cell-date">{{ fmtFecha(r.fecha) }}</td>
-              <td class="num monto">{{ fmt(Number(r.monto_nancy) * Number(r.tipo_cambio)) }}</td>
-              <td class="num monto">{{ fmt(Number(r.monto_sol) * Number(r.tipo_cambio)) }}</td>
-              <td class="num monto cell-saldo">{{ fmt((Number(r.monto_nancy) + Number(r.monto_sol)) * Number(r.tipo_cambio)) }}</td>
-              <td class="cell-acciones">
-                <div class="cell-acciones__inner">
-                  <button type="button" class="icon-btn" title="Editar" @click="editarRetiro(r)">
-                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-                      <path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10l7.5-7.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
-                    </svg>
-                  </button>
-                  <button type="button" class="icon-btn icon-btn--danger" title="Borrar" :disabled="borrandoRetiroId === r.id" @click="borrarRetiro(r)">
-                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-                      <path d="M3 4h10M6.5 4V3h3v1M5 4l.5 9h5L11 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
-                    </svg>
-                  </button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
-    </div>
-
-    <!-- Documentos: ocultos en pantalla, solo aparece al imprimir el que está activo (Exportar) -->
-    <div class="solo-print">
-      <DocumentoPresupuesto
-        v-if="docActivo === 'presupuesto'"
-        :obra="obra"
-        :items="itemsExport"
-        :mostrar-proveedor="mostrarProveedor"
-        :mostrar-subtotales="mostrarSubtotales"
-      />
-      <DocumentoReporte
-        v-else-if="docActivo === 'cobros'"
-        :obra="obra"
-        titulo="Pagos recibidos"
-        :columnas="[
-          { key: 'fecha', label: 'Fecha' },
-          { key: 'medio', label: 'Medio' },
-          { key: 'monto', label: 'Monto', num: true },
-        ]"
-        :filas="filasCobros"
-        :totales="[{ label: 'Total recibido', valor: totalCobros }]"
-      />
-      <DocumentoReporte
-        v-else-if="docActivo === 'pagos'"
-        :obra="obra"
-        titulo="Pagos a proveedores"
-        :columnas="[
-          { key: 'fecha', label: 'Fecha' },
-          { key: 'proveedor', label: 'Proveedor' },
-          { key: 'medio', label: 'Medio' },
-          { key: 'monto', label: 'Monto', num: true },
-        ]"
-        :filas="filasPagos"
-        :totales="[{ label: 'Total pagado', valor: totalPagos }]"
-      />
-      <template v-else-if="docActivo === 'proveedor'">
-        <DocumentoReporte
-          :obra="obra"
-          titulo="Detalle de proveedor · Presupuestado"
-          :subtitulo="proveedorReporte?.nombre || ''"
-          :columnas="[
-            { key: 'rubro', label: 'Rubro' },
-            { key: 'detalle', label: 'Detalle' },
-            { key: 'monto', label: 'Monto', num: true },
-          ]"
-          :filas="itemsDelProveedor"
-          :totales="[
-            { label: 'Presupuestado', valor: presupuestadoProveedor },
-            { label: 'Pagado', valor: pagadoProveedor },
-            { label: 'Saldo', valor: presupuestadoProveedor - pagadoProveedor },
-          ]"
-        />
-      </template>
-    </div>
-  </div>
-</template>
 
 <style scoped>
 /* Documentos de export: ocultos en pantalla, el @media print global los muestra */
@@ -1392,22 +1395,6 @@ function cambiarTab(id) {
 /* Switch de Adicional (label + toggle en la misma fila) */
 .label-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .label-row .label { margin-bottom: 0; }
-.switch {
-  width: 40px; height: 22px;
-  display: flex; align-items: center;
-  position: relative;
-  background: var(--border); border: none; border-radius: 11px;
-  cursor: pointer; transition: background 150ms var(--ease-out);
-  padding: 0;
-}
-.switch--on { background: var(--accent); }
-.switch__knob {
-  width: 18px; height: 18px;
-  background: var(--surface); border-radius: 50%;
-  transition: transform 150ms var(--ease-out);
-  transform: translateX(2px);
-}
-.switch--on .switch__knob { transform: translateX(20px); }
 
 /* Form de ítem de presupuesto */
 .item-form {

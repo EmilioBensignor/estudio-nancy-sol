@@ -23,7 +23,7 @@ La calidez viene del color terracota sobre fondo crema, no de decorations. La es
 
 - **Terracota activo** (`#C45C26`): Acciones principales, elementos seleccionados, énfasis. Toda interacción que requiere atención del usuario usa este color.
 - **Terracota hover** (`#A84B1E`): Estado hover del primario. Transición suave.
-- **Terracota sutil** (`#FBF0EB`): Background de superficies que承载 información destacada. Tint areal, no bulk.
+- **Terracota sutil** (`#FBF0EB`): Background de superficies que llevan información destacada. Tint areal, no bulk.
 
 ### Neutral
 
@@ -93,7 +93,7 @@ La calidez viene del color terracota sobre fondo crema, no de decorations. La es
 
 ### Shadow Vocabulary
 
-- **Shadow sm** (`0 1px 2px rgba(28,27,25,0.06)`): Solo para elementos que necesitan浮抬 ephemeral (dropdowns, tooltips).
+- **Shadow sm** (`0 1px 2px rgba(28,27,25,0.06)`): Solo para elementos que necesitan flotar (dropdowns, tooltips).
 - **Shadow** (`0 2px 8px rgba(28,27,25,0.08)`): Cards con interacción que requiere relieve (obra cards con hover).
 
 **The Flat Rule.** Ningún componente tiene sombra en estado default. Hover es el único momento donde la elevación aparece, y es leve.

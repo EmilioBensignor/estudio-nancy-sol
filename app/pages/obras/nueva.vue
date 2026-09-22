@@ -1,50 +1,3 @@
-<script setup>
-const { getClientes, crearObra } = useDb()
-
-const clientes = ref([])
-const opcionesCliente = computed(() => clientes.value.map((c) => ({ value: c.id, label: c.nombre })))
-
-const form = reactive({
-  clienteId: '',
-  nombre: '',
-  fecha: '',
-})
-
-const guardando = ref(false)
-const errors = reactive({})
-const errorGuardar = ref('')
-
-onMounted(async () => {
-  try {
-    clientes.value = await getClientes()
-  } catch (e) {
-    console.error(e)
-  }
-})
-
-async function crear() {
-  Object.keys(errors).forEach((k) => delete errors[k])
-  if (!form.clienteId) errors.clienteId = 'Elegí un cliente.'
-  if (!form.nombre.trim()) errors.nombre = 'Ingresá el nombre de la obra.'
-  if (Object.keys(errors).length) return
-
-  guardando.value = true
-  errorGuardar.value = ''
-  try {
-    await crearObra({
-      cliente_id: form.clienteId,
-      nombre_direccion: form.nombre.trim(),
-      fecha_inicio: form.fecha || null,
-    })
-    navigateTo('/')
-  } catch (e) {
-    errorGuardar.value = 'No se pudo crear la obra. Reintentá.'
-    console.error(e)
-    guardando.value = false
-  }
-}
-</script>
-
 <template>
   <div class="shell">
     <header class="page-header">
@@ -80,6 +33,20 @@ async function crear() {
           <label class="label">Fecha de inicio <span class="label-opt">(opcional)</span></label>
           <DateField v-model="form.fecha" />
         </div>
+
+        <div class="field-group field-group--full">
+          <label class="label">Quién retira</label>
+          <div class="socias">
+            <div v-for="s in SOCIAS" :key="s.key" class="socia">
+              <span>{{ s.nombre }}</span>
+              <button type="button" class="switch" :class="{ 'switch--on': form.retira[s.key] }" role="switch" :aria-checked="form.retira[s.key]" @click="form.retira[s.key] = !form.retira[s.key]; delete errors.retira">
+                <span class="switch__knob"></span>
+              </button>
+            </div>
+          </div>
+          <span v-if="errors.retira" class="field-error">{{ errors.retira }}</span>
+          <span v-else class="hint">El reparto arranca parejo entre las que retiran. Se ajusta en Configuración.</span>
+        </div>
       </div>
 
       <span v-if="errorGuardar" class="field-error">{{ errorGuardar }}</span>
@@ -92,10 +59,72 @@ async function crear() {
   </div>
 </template>
 
+<script setup>
+import { SOCIAS, repartoParejo } from '~/composables/useSocias'
+
+const { getClientes, crearObra } = useDb()
+
+const clientes = ref([])
+const opcionesCliente = computed(() => clientes.value.map((c) => ({ value: c.id, label: c.nombre })))
+
+const form = reactive({
+  clienteId: '',
+  nombre: '',
+  fecha: '',
+  retira: { nancy: true, sol: true, jessica: false },
+})
+
+const guardando = ref(false)
+const errors = reactive({})
+const errorGuardar = ref('')
+
+onMounted(async () => {
+  try {
+    clientes.value = await getClientes()
+  } catch (e) {
+    console.error(e)
+  }
+})
+
+async function crear() {
+  Object.keys(errors).forEach((k) => delete errors[k])
+  if (!form.clienteId) errors.clienteId = 'Elegí un cliente.'
+  if (!form.nombre.trim()) errors.nombre = 'Ingresá el nombre de la obra.'
+  const activas = SOCIAS.filter((s) => form.retira[s.key]).map((s) => s.key)
+  if (!activas.length) errors.retira = 'Tiene que retirar al menos una persona.'
+  if (Object.keys(errors).length) return
+
+  guardando.value = true
+  errorGuardar.value = ''
+  try {
+    const reparto = repartoParejo(activas)
+    const socias = Object.fromEntries(
+      SOCIAS.flatMap((s) => [
+        [`retira_${s.key}`, form.retira[s.key]],
+        [`split_${s.key}_override`, Number(reparto[s.key] || 0) / 100],
+      ]),
+    )
+    await crearObra({
+      cliente_id: form.clienteId,
+      nombre_direccion: form.nombre.trim(),
+      fecha_inicio: form.fecha || null,
+      ...socias,
+    })
+    navigateTo('/')
+  } catch (e) {
+    errorGuardar.value = 'No se pudo crear la obra. Reintentá.'
+    console.error(e)
+    guardando.value = false
+  }
+}
+</script>
+
 <style scoped>
 .form-card { padding: 26px 28px; display: flex; flex-direction: column; gap: 24px; }
 .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 20px; }
 .field-group--full { grid-column: 1 / -1; }
+.socias { display: flex; flex-wrap: wrap; gap: 12px 28px; margin-bottom: 6px; }
+.socia { display: flex; align-items: center; gap: 10px; font-size: 16px; color: var(--ink); }
 .form-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 @media (max-width: 600px) { .fields { grid-template-columns: 1fr; } }
 </style>

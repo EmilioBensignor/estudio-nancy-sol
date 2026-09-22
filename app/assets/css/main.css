@@ -563,6 +563,7 @@ select.field { appearance: none; cursor: pointer; padding-right: 34px;
 }
 .progress__fill--nancy { background: var(--ink); }
 .progress__fill--sol { background: var(--accent); }
+.progress__fill--jessica { background: var(--warning); }
 
 /* =========================================
    Empty state
@@ -609,3 +610,23 @@ select.field { appearance: none; cursor: pointer; padding-right: 34px;
   .solo-print { display: block !important; }
   .shell { max-width: none !important; padding: 0 !important; margin: 0 !important; }
 }
+
+/* =========================================
+   Switch (toggle on/off)
+   ========================================= */
+.switch {
+  width: 40px; height: 22px;
+  display: flex; align-items: center;
+  position: relative;
+  background: var(--border); border: none; border-radius: 11px;
+  cursor: pointer; transition: background 150ms var(--ease-out);
+  padding: 0;
+}
+.switch--on { background: var(--accent); }
+.switch__knob {
+  width: 18px; height: 18px;
+  background: var(--surface); border-radius: 50%;
+  transition: transform 150ms var(--ease-out);
+  transform: translateX(2px);
+}
+.switch--on .switch__knob { transform: translateX(20px); }

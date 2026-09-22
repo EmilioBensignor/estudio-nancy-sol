@@ -1,36 +1,3 @@
-<script setup>
-import { fmtArs as fmt, fmtFecha } from '~/composables/useFormato'
-
-const { getRetirosGlobales } = useDb()
-
-const retiros = ref([])
-const cargando = ref(true)
-const errorCarga = ref('')
-
-// Monto en ARS de cada socia (el retiro guarda montos en la moneda del TC del día).
-function montoNancy(r) {
-  return Number(r.monto_nancy) * Number(r.tipo_cambio)
-}
-function montoSol(r) {
-  return Number(r.monto_sol) * Number(r.tipo_cambio)
-}
-
-const totalNancy = computed(() => retiros.value.reduce((a, r) => a + montoNancy(r), 0))
-const totalSol = computed(() => retiros.value.reduce((a, r) => a + montoSol(r), 0))
-const totalGeneral = computed(() => totalNancy.value + totalSol.value)
-
-onMounted(async () => {
-  try {
-    retiros.value = await getRetirosGlobales()
-  } catch (e) {
-    errorCarga.value = 'No se pudieron cargar los retiros.'
-    console.error(e)
-  } finally {
-    cargando.value = false
-  }
-})
-</script>
-
 <template>
   <div class="shell">
     <header class="page-header">
@@ -40,8 +7,7 @@ onMounted(async () => {
           <p class="subtitle">Retiros de las socias en todas las obras</p>
         </div>
         <div class="reparto__stats">
-          <span class="reparto__stat">Nancy <strong class="monto">{{ fmt(totalNancy) }}</strong></span>
-          <span class="reparto__stat">Solana <strong class="monto">{{ fmt(totalSol) }}</strong></span>
+          <span v-for="s in SOCIAS" :key="s.key" class="reparto__stat">{{ s.nombre }} <strong class="monto">{{ fmt(totales[s.key]) }}</strong></span>
           <span class="reparto__stat">Total <strong class="monto monto--accent">{{ fmt(totalGeneral) }}</strong></span>
         </div>
       </div>
@@ -57,8 +23,7 @@ onMounted(async () => {
           <tr>
             <th style="width: 92px">Fecha</th>
             <th>Obra</th>
-            <th class="num">Nancy</th>
-            <th class="num">Solana</th>
+            <th v-for="s in SOCIAS" :key="s.key" class="num">{{ s.nombre }}</th>
             <th class="num" style="width: 150px">Total</th>
           </tr>
         </thead>
@@ -68,16 +33,14 @@ onMounted(async () => {
             <td class="cell-strong">
               <NuxtLink :to="`/obras/${r.obra?.slug || r.obra_id}`" class="link-obra">{{ r.obra?.nombre_direccion || '—' }}</NuxtLink>
             </td>
-            <td class="num monto">{{ fmt(montoNancy(r)) }}</td>
-            <td class="num monto">{{ fmt(montoSol(r)) }}</td>
-            <td class="num monto cell-saldo">{{ fmt(montoNancy(r) + montoSol(r)) }}</td>
+            <td v-for="s in SOCIAS" :key="s.key" class="num monto">{{ fmt(montoSocia(r, s.key)) }}</td>
+            <td class="num monto cell-saldo">{{ fmt(totalRetiro(r)) }}</td>
           </tr>
         </tbody>
         <tfoot>
           <tr>
             <td colspan="2" class="cell-total-label">Total</td>
-            <td class="num monto">{{ fmt(totalNancy) }}</td>
-            <td class="num monto">{{ fmt(totalSol) }}</td>
+            <td v-for="s in SOCIAS" :key="s.key" class="num monto">{{ fmt(totales[s.key]) }}</td>
             <td class="num monto cell-total">{{ fmt(totalGeneral) }}</td>
           </tr>
         </tfoot>
@@ -85,6 +48,41 @@ onMounted(async () => {
     </section>
   </div>
 </template>
+
+<script setup>
+import { fmtArs as fmt, fmtFecha } from '~/composables/useFormato'
+import { SOCIAS } from '~/composables/useSocias'
+
+const { getRetirosGlobales } = useDb()
+
+const retiros = ref([])
+const cargando = ref(true)
+const errorCarga = ref('')
+
+// Monto en ARS de cada socia (el retiro guarda montos en la moneda del TC del día).
+function montoSocia(r, key) {
+  return Number(r[`monto_${key}`] || 0) * Number(r.tipo_cambio)
+}
+function totalRetiro(r) {
+  return SOCIAS.reduce((a, s) => a + montoSocia(r, s.key), 0)
+}
+
+const totales = computed(() =>
+  Object.fromEntries(SOCIAS.map((s) => [s.key, retiros.value.reduce((a, r) => a + montoSocia(r, s.key), 0)])),
+)
+const totalGeneral = computed(() => retiros.value.reduce((a, r) => a + totalRetiro(r), 0))
+
+onMounted(async () => {
+  try {
+    retiros.value = await getRetirosGlobales()
+  } catch (e) {
+    errorCarga.value = 'No se pudieron cargar los retiros.'
+    console.error(e)
+  } finally {
+    cargando.value = false
+  }
+})
+</script>
 
 <style scoped>
 .reparto__stats { display: flex; gap: 24px; }

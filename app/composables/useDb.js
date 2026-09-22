@@ -218,7 +218,7 @@ export function useDb() {
   async function duplicarObra(obraId, nombreNuevo) {
     const { data: origen, error: e1 } = await sb()
       .from('obras')
-      .select('cliente_id, honorario_override, split_nancy_override, split_sol_override, tipo_cambio_fallback')
+      .select('cliente_id, honorario_override, split_nancy_override, split_sol_override, split_jessica_override, retira_nancy, retira_sol, retira_jessica, tipo_cambio_fallback')
       .eq('id', obraId)
       .single()
     if (e1) throw e1

@@ -38,9 +38,10 @@ Anotar la plata que entra (**cobros del cliente**) y la que sale (**pagos a prov
 y ver el **saldo en caja** actualizado al instante.
 *Excel: hoja `Caja` → "Movimiento de cuentas con cliente" y "con proveedores".*
 
-### 4. Registrar retiros y seguir la convergencia 50/50
-Anotar cuánto retira Nancy y cuánto Solana (montos libres, pueden ser desiguales),
-y ver cuánto falta para emparejar al 50/50 al final de la obra.
+### 4. Registrar retiros y seguir la convergencia al reparto
+Anotar cuánto retira cada socia (montos libres, pueden ser desiguales) y ver cuánto falta para
+emparejar según el reparto de la obra. Desde septiembre 2026 puede retirar también **Jessica**:
+cada obra elige quién retira (switch por persona) y en qué proporción.
 *Excel: hoja `Caja` → bloque RETIROS (columnas NANCY, SOL, DE C/COBRO, ACUMULADO)
 y el "Control debe ser 0".*
 
@@ -71,18 +72,19 @@ de esa operación. Todo se consolida en pesos.
 ```
               NANCY BENSIGNOR
               SOLANA RUTENBERG
-        ──────────────────────────
-        Obras    Clientes    Proveedores
+        ──────────────────────────────────────
+        Obras    Clientes    Proveedores    Retiros
 ```
 
 - **Obras** → lista → click en una obra → su detalle (presupuesto + caja + retiros + saldos)
 - **Clientes** → catálogo de clientes
 - **Proveedores** → catálogo de proveedores por rubro
+- **Retiros** → todos los retiros de todas las obras, con totales por socia
 
 El **exportar** vive dentro de cada obra (es una acción, no una sección).
 
-## Qué falta confirmar con el cliente
+## Dudas con el cliente (resueltas)
 
-1. ¿Los retiros salen de la **ganancia cobrada** (lo recibido) o del honorario teórico? *(asumimos: ganancia cobrada, base caja).*
-2. ¿El presupuesto se exporta como PDF para imprimir, o alcanza con verlo en pantalla?
-3. ¿Quieren ver montos también en dólares con un toggle, o siempre en pesos?
+1. Los retiros salen del **honorario 15% presupuestado**, no de la ganancia cobrada (migración 020).
+2. El presupuesto se exporta como PDF con la impresión del navegador (`DocumentoPresupuesto.vue`).
+3. Los montos se ven en pesos; el toggle USD existe en la tabla de presupuesto.
