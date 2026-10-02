@@ -193,6 +193,9 @@
         <div class="panel__head split">
           <span class="eyebrow">Ítems del presupuesto</span>
           <div class="panel__head-actions">
+            <div class="zoom-select">
+              <SelectField v-model="zoom" :options="opcionesZoom" />
+            </div>
             <button type="button" class="btn btn--secondary btn--sm" @click="togglePantallaCompleta">
               {{ pantallaCompleta ? 'Salir de pantalla completa' : 'Pantalla completa' }}
             </button>
@@ -285,7 +288,7 @@
         </form>
 
         <p v-if="!items.length" class="estado-msg">Todavía no hay ítems en el presupuesto.</p>
-        <table v-else class="table">
+        <table v-else class="table" :style="{ zoom: zoom / 100 }">
           <thead>
             <tr>
               <th style="width: 210px">Rubro</th>
@@ -850,6 +853,20 @@ function onFullscreenChange() {
 onMounted(() => document.addEventListener('fullscreenchange', onFullscreenChange))
 onUnmounted(() => document.removeEventListener('fullscreenchange', onFullscreenChange))
 
+// Zoom de la tabla del presupuesto, como en el Excel. Se recuerda en este navegador.
+const opcionesZoom = [50, 75, 90, 100, 125, 150, 200].map((n) => ({ value: n, label: `${n}%` }))
+const zoom = ref(100)
+onMounted(() => {
+  try {
+    zoom.value = Number(localStorage.getItem('zoomPresupuesto')) || 100
+  } catch {}
+})
+watch(zoom, (v) => {
+  try {
+    localStorage.setItem('zoomPresupuesto', String(v))
+  } catch {}
+})
+
 const itemFormOpen = ref(false)
 const costoInput = ref(null)
 const editandoItemId = ref(null)
@@ -1340,6 +1357,8 @@ function cambiarTab(id) {
   background: transparent; border: none; color: var(--ink-muted);
   cursor: pointer; transition: color 150ms var(--ease-out); padding: 6px;
 }
+.zoom-select { width: 96px; }
+.zoom-select :deep(.field) { height: 36px; font-size: 14px; }
 .panel--presupuesto:fullscreen { overflow-y: auto; border-radius: 0; border: none; }
 .table .icon-btn { padding: 2px 5px; }
 .icon-btn:hover { color: var(--ink); }
