@@ -285,8 +285,8 @@
         <table v-else class="table">
           <thead>
             <tr>
-              <th style="width: 150px">Rubro</th>
-              <th style="width: 150px">Proveedor</th>
+              <th style="width: 210px">Rubro</th>
+              <th style="width: 190px">Proveedor</th>
               <th>Detalle</th>
               <th class="num" style="width: 140px">Valor final</th>
               <th></th>
@@ -295,8 +295,8 @@
           <tbody>
             <template v-for="(fila, i) in filasPresupuesto" :key="fila.tipo === 'item' ? fila.it.id : `sub-${i}`">
               <tr v-if="fila.tipo === 'item'" :class="{ 'row--editando': editandoItemId === fila.it.id, 'row--repite': fila.repite }">
-                <td class="cell-strong">{{ fila.repite ? '' : fila.it.rubro?.nombre || '—' }}</td>
-                <td class="cell-muted">{{ fila.repite ? '' : fila.it.proveedor?.nombre || '—' }}</td>
+                <td class="cell-strong cell-nowrap">{{ fila.repite ? '' : fila.it.rubro?.nombre || '—' }}</td>
+                <td class="cell-muted cell-nowrap">{{ fila.repite ? '' : fila.it.proveedor?.nombre || '—' }}</td>
                 <td class="cell-muted">{{ fila.it.detalle || '—' }}</td>
                 <td class="num monto">{{ fmt(fila.it.valor_final_ars) }}</td>
                 <td class="cell-acciones">
@@ -1324,6 +1324,7 @@ function cambiarTab(id) {
   background: transparent; border: none; color: var(--ink-muted);
   cursor: pointer; transition: color 150ms var(--ease-out); padding: 6px;
 }
+.table .icon-btn { padding: 2px 5px; }
 .icon-btn:hover { color: var(--ink); }
 .icon-btn--danger:hover { color: var(--negative); }
 .icon-btn:disabled { opacity: 0.4; cursor: default; }
@@ -1464,6 +1465,7 @@ function cambiarTab(id) {
 .item-form__actions { display: flex; justify-content: flex-end; }
 
 .cell-strong { font-weight: 600; color: var(--ink); }
+.cell-nowrap { white-space: nowrap; }
 .cell-muted { color: var(--ink-muted); }
 .cell-medio { display: block; font-size: 13px; color: var(--ink-faint); text-transform: capitalize; margin-top: 2px; }
 .table tfoot td { padding: 10px 14px; border-top: 1px solid var(--border); background: var(--surface-raised); }
