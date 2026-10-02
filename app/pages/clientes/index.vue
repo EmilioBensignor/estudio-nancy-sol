@@ -1,50 +1,3 @@
-<script setup>
-// Lista de clientes (hoja Data del Excel) + sus obras asociadas.
-const { getClientes } = useDb()
-
-const lista = ref([])
-const cargando = ref(true)
-const error = ref('')
-
-onMounted(async () => {
-  try {
-    lista.value = await getClientes()
-  } catch (e) {
-    error.value = 'No se pudieron cargar los clientes.'
-    console.error(e)
-  } finally {
-    cargando.value = false
-  }
-})
-
-const busqueda = ref('')
-const ordenCol = ref('nombre')
-const ordenDir = ref('asc')
-
-function ordenarPor(col) {
-  if (ordenCol.value === col) {
-    ordenDir.value = ordenDir.value === 'asc' ? 'desc' : 'asc'
-  } else {
-    ordenCol.value = col
-    ordenDir.value = 'asc'
-  }
-}
-
-const clientes = computed(() => {
-  const q = busqueda.value.trim().toLowerCase()
-  const filtrados = q
-    ? lista.value.filter((c) =>
-        [c.nombre, c.telefono, c.email, c.cuit].some((v) => (v || '').toLowerCase().includes(q)),
-      )
-    : [...lista.value]
-  const dir = ordenDir.value === 'asc' ? 1 : -1
-  return filtrados.sort((a, b) => {
-    const cmp = (a[ordenCol.value] || '').localeCompare(b[ordenCol.value] || '')
-    return (cmp || a.nombre.localeCompare(b.nombre)) * dir
-  })
-})
-</script>
-
 <template>
   <div class="shell">
     <header class="page-header">
@@ -127,6 +80,51 @@ const clientes = computed(() => {
     </section>
   </div>
 </template>
+
+<script setup>
+// Lista de clientes (hoja Data del Excel) + sus obras asociadas.
+const { getClientes } = useDb()
+
+const lista = ref([])
+const cargando = ref(true)
+const error = ref('')
+
+onMounted(async () => {
+  try {
+    lista.value = await getClientes()
+  } catch (e) {
+    error.value = 'No se pudieron cargar los clientes.'
+    console.error(e)
+  } finally {
+    cargando.value = false
+  }
+})
+
+const busqueda = ref('')
+const ordenCol = ref('nombre')
+const ordenDir = ref('asc')
+
+function ordenarPor(col) {
+  if (ordenCol.value === col) {
+    ordenDir.value = ordenDir.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    ordenCol.value = col
+    ordenDir.value = 'asc'
+  }
+}
+
+const clientes = computed(() => {
+  const q = busqueda.value.trim()
+  const filtrados = q
+    ? lista.value.filter((c) => [c.nombre, c.telefono, c.email, c.cuit].some((v) => empiezaCon(v, q)))
+    : [...lista.value]
+  const dir = ordenDir.value === 'asc' ? 1 : -1
+  return filtrados.sort((a, b) => {
+    const cmp = (a[ordenCol.value] || '').localeCompare(b[ordenCol.value] || '')
+    return (cmp || a.nombre.localeCompare(b.nombre)) * dir
+  })
+})
+</script>
 
 <style scoped>
 .prov-search {

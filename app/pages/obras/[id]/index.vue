@@ -234,7 +234,7 @@
             <div class="money-row">
               <div class="field-group">
                 <label class="label">Costo del proveedor</label>
-                <input v-model="formItem.costo" type="number" class="field field--num" placeholder="0" @input="sugerirFinal" />
+                <input ref="costoInput" v-model="formItem.costo" type="number" class="field field--num" placeholder="0" @input="sugerirFinal" />
               </div>
 
               <span class="money-op">+</span>
@@ -294,9 +294,9 @@
           </thead>
           <tbody>
             <template v-for="(fila, i) in filasPresupuesto" :key="fila.tipo === 'item' ? fila.it.id : `sub-${i}`">
-              <tr v-if="fila.tipo === 'item'" :class="{ 'row--editando': editandoItemId === fila.it.id }">
-                <td class="cell-strong">{{ fila.it.rubro?.nombre || '—' }}</td>
-                <td class="cell-muted">{{ fila.it.proveedor?.nombre || '—' }}</td>
+              <tr v-if="fila.tipo === 'item'" :class="{ 'row--editando': editandoItemId === fila.it.id, 'row--repite': fila.repite }">
+                <td class="cell-strong">{{ fila.repite ? '' : fila.it.rubro?.nombre || '—' }}</td>
+                <td class="cell-muted">{{ fila.repite ? '' : fila.it.proveedor?.nombre || '—' }}</td>
                 <td class="cell-muted">{{ fila.it.detalle || '—' }}</td>
                 <td class="num monto">{{ fmt(fila.it.valor_final_ars) }}</td>
                 <td class="cell-acciones">
@@ -770,17 +770,29 @@ function esPositivo(n) {
   return Number(n) >= 0
 }
 
-// Ordenado por rubro (después por detalle) para leer agrupado. No afecta los totales.
+// Ordenado por rubro, proveedor y detalle para leer agrupado. No afecta los totales.
 const itemsOrdenados = computed(() =>
   [...items.value].sort(
     (a, b) =>
       (a.rubro?.nombre || '').localeCompare(b.rubro?.nombre || '') ||
+      (a.proveedor?.nombre || '').localeCompare(b.proveedor?.nombre || '') ||
       (a.detalle || '').localeCompare(b.detalle || ''),
   ),
 )
 
-// Filas de la tabla con subtotal por rubro intercalado.
-const filasPresupuesto = computed(() => agruparPorRubro(itemsOrdenados.value))
+// Filas de la tabla con subtotal por rubro intercalado. Si un ítem repite el rubro y el
+// proveedor del renglón anterior, no se vuelven a mostrar (repite: true).
+const filasPresupuesto = computed(() =>
+  agruparPorRubro(itemsOrdenados.value).map((fila, i, filas) => {
+    const prev = filas[i - 1]
+    const repite =
+      fila.tipo === 'item' &&
+      prev?.tipo === 'item' &&
+      prev.it.rubro_id === fila.it.rubro_id &&
+      prev.it.proveedor_id === fila.it.proveedor_id
+    return { ...fila, repite }
+  }),
+)
 
 // Presupuesto: totales desde las columnas derivadas de la view
 const totalPresupuesto = computed(() => items.value.reduce((a, i) => a + Number(i.total_ars || 0), 0))
@@ -823,6 +835,7 @@ const deudaTotal = computed(() => deudaPorProveedor.value.reduce((a, p) => a + p
 const pagadoTotal = computed(() => deudaPorProveedor.value.reduce((a, p) => a + p.pagado, 0))
 
 const itemFormOpen = ref(false)
+const costoInput = ref(null)
 const editandoItemId = ref(null)
 // Si el presupuesto exportado/visualizado muestra la columna proveedor.
 const mostrarProveedor = ref(false)
@@ -928,15 +941,20 @@ async function agregarItem() {
       moneda: 'ARS',
       moneda_proveedor: 'ARS',
     }
-    if (editandoItemId.value) {
-      await db.actualizarItem(editandoItemId.value, payload)
-    } else {
+    const esAlta = !editandoItemId.value
+    if (esAlta) {
       await db.crearItem({ obra_id: obraId, fecha: fechaHoy, ...payload })
+    } else {
+      await db.actualizarItem(editandoItemId.value, payload)
     }
+    // En un alta el form queda abierto con el mismo rubro y proveedor, para cargar la
+    // siguiente tarea del mismo gremio de corrido.
+    const { rubro, proveedorId } = formItem
     editandoItemId.value = null
-    Object.assign(formItem, formItemVacio())
+    Object.assign(formItem, formItemVacio(), esAlta ? { rubro, proveedorId } : {})
     valorEditado.value = false
-    itemFormOpen.value = false
+    itemFormOpen.value = esAlta
+    if (esAlta) nextTick(() => costoInput.value?.focus())
     await Promise.all([cargarItems(), cargarControl(), cargarConvergencia()])
   } catch (e) {
     errItem.valor = 'No se pudo guardar. Reintentá.'
@@ -1448,10 +1466,11 @@ function cambiarTab(id) {
 .cell-strong { font-weight: 600; color: var(--ink); }
 .cell-muted { color: var(--ink-muted); }
 .cell-medio { display: block; font-size: 13px; color: var(--ink-faint); text-transform: capitalize; margin-top: 2px; }
-.table tfoot td { padding: 15px 18px; border-top: 1px solid var(--border); background: var(--surface-raised); }
+.table tfoot td { padding: 10px 14px; border-top: 1px solid var(--border); background: var(--surface-raised); }
 .cell-total-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-muted); }
 .cell-total { font-weight: 600; font-size: 16px; color: var(--ink); }
 .row--subtotal td { background: var(--surface-raised); font-weight: 600; }
+.table tbody tr:has(+ .row--repite) td { border-bottom-color: transparent; }
 .cell-subtotal-label { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-muted); }
 
 @media (max-width: 560px) {

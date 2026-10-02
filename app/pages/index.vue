@@ -1,3 +1,116 @@
+<template>
+  <div class="shell">
+    <!-- Encabezado del balance: el número lidera la pantalla -->
+    <section class="balance">
+      <div class="balance__hero">
+        <span class="balance__label">Total a cobrar</span>
+        <span class="balance__value">{{ fmt(totalACobrar) }}</span>
+        <span class="balance__note">{{ activas.length }} obras en curso</span>
+      </div>
+      <div class="balance__aside">
+        <span class="balance__aside-label">En caja, todas las obras</span>
+        <span class="balance__aside-value monto" :class="totalEnCaja < 0 ? 'monto--neg' : 'monto--pos'">{{ fmt(totalEnCaja) }}</span>
+      </div>
+    </section>
+
+    <main>
+      <div class="section-head">
+        <div class="section-head__title">
+          <span class="eyebrow">Obras</span>
+          <span class="count">{{ obras.length }}</span>
+        </div>
+        <div class="section-head__actions">
+          <input v-model="busqueda" type="search" class="field obra-search" placeholder="Buscar…" />
+          <button class="btn btn--primary" @click="navigateTo('/obras/nueva')">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+            Nueva obra
+          </button>
+        </div>
+      </div>
+
+      <div v-if="cargando" class="obra-grid">
+        <article v-for="n in 3" :key="n" class="obra-card obra-card--skeleton">
+          <div class="obra-card__head">
+            <div class="obra-card__id">
+              <Skeleton width="60%" height="19px" />
+              <Skeleton width="40%" height="15px" radius="4px" />
+            </div>
+          </div>
+          <div class="obra-card__figure">
+            <Skeleton width="50%" height="12px" radius="4px" />
+            <Skeleton width="70%" height="28px" />
+          </div>
+        </article>
+      </div>
+      <p v-else-if="error" class="estado-msg estado-msg--error">{{ error }}</p>
+      <p v-else-if="!obras.length" class="estado-msg">Todavía no hay obras. Creá la primera.</p>
+
+      <p v-else-if="!obrasFiltradas.length" class="estado-msg">Sin resultados para “{{ busqueda }}”.</p>
+
+      <div v-else class="obra-grid">
+        <article
+          v-for="obra in obrasFiltradas"
+          :key="obra.id"
+          class="obra-card"
+          :class="{ 'obra-card--done': obra.estado === 'finalizada' }"
+          tabindex="0"
+          role="button"
+          @click="navigateTo(`/obras/${obra.slug || obra.id}`)"
+          @keydown.enter="navigateTo(`/obras/${obra.slug || obra.id}`)"
+        >
+          <div class="obra-card__head">
+            <div class="obra-card__id">
+              <h2 class="obra-card__name">{{ obra.nombre_direccion }}</h2>
+              <p class="obra-card__client">{{ obra.cliente_nombre }}</p>
+            </div>
+            <div class="obra-card__meta">
+              <span v-if="obra.estado === 'finalizada'" class="estado estado--finalizada">finalizada</span>
+              <div class="menu">
+                <button
+                  type="button"
+                  class="btn-icon"
+                  aria-label="Acciones de la obra"
+                  :aria-expanded="menuAbierto === obra.id"
+                  @click.stop="toggleMenu(obra.id)"
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <circle cx="8" cy="3" r="1.5" />
+                    <circle cx="8" cy="8" r="1.5" />
+                    <circle cx="8" cy="13" r="1.5" />
+                  </svg>
+                </button>
+                <div v-if="menuAbierto === obra.id" class="menu__pop" @click.stop>
+                  <button type="button" class="menu__item" @click="abrirDuplicar(obra)">
+                    Duplicar obra
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="obra-card__figure">
+            <span class="obra-card__figure-label">A cobrar</span>
+            <span class="obra-card__figure-value monto" :class="{ 'monto--faint': Number(obra.saldo_a_cobrar_ars) === 0 }">
+              {{ Number(obra.saldo_a_cobrar_ars) === 0 ? 'Saldada' : fmt(obra.saldo_a_cobrar_ars) }}
+            </span>
+          </div>
+        </article>
+      </div>
+    </main>
+
+    <DuplicarObraDialog
+      :open="!!obraADuplicar"
+      :obra="obraADuplicar"
+      :procesando="duplicando"
+      :error="errorDuplicar"
+      @cerrar="cerrarDuplicar"
+      @confirmar="confirmarDuplicar"
+    />
+  </div>
+</template>
+
 <script setup>
 import { fmtArs as fmt } from '~/composables/useFormato'
 
@@ -63,116 +176,14 @@ async function confirmarDuplicar(nombre) {
 // Total a cobrar de obras activas: lidera con el número que más importa
 const activas = computed(() => obras.value.filter((o) => o.estado === 'activa'))
 const totalACobrar = computed(() => activas.value.reduce((acc, o) => acc + Number(o.saldo_a_cobrar_ars || 0), 0))
+// Buscador de obras: por dirección o cliente
+const busqueda = ref('')
+const obrasFiltradas = computed(() => {
+  const q = busqueda.value.trim()
+  return q ? obras.value.filter((o) => [o.nombre_direccion, o.cliente_nombre].some((v) => empiezaCon(v, q))) : obras.value
+})
 const totalEnCaja = computed(() => obras.value.reduce((acc, o) => acc + Number(o.saldo_caja_ars || 0), 0))
 </script>
-
-<template>
-  <div class="shell">
-    <!-- Encabezado del balance: el número lidera la pantalla -->
-    <section class="balance">
-      <div class="balance__hero">
-        <span class="balance__label">Total a cobrar</span>
-        <span class="balance__value">{{ fmt(totalACobrar) }}</span>
-        <span class="balance__note">{{ activas.length }} obras en curso</span>
-      </div>
-      <div class="balance__aside">
-        <span class="balance__aside-label">En caja, todas las obras</span>
-        <span class="balance__aside-value monto" :class="totalEnCaja < 0 ? 'monto--neg' : 'monto--pos'">{{ fmt(totalEnCaja) }}</span>
-      </div>
-    </section>
-
-    <main>
-      <div class="section-head">
-        <div class="section-head__title">
-          <span class="eyebrow">Obras</span>
-          <span class="count">{{ obras.length }}</span>
-        </div>
-        <button class="btn btn--primary" @click="navigateTo('/obras/nueva')">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-          </svg>
-          Nueva obra
-        </button>
-      </div>
-
-      <div v-if="cargando" class="obra-grid">
-        <article v-for="n in 3" :key="n" class="obra-card obra-card--skeleton">
-          <div class="obra-card__head">
-            <div class="obra-card__id">
-              <Skeleton width="60%" height="19px" />
-              <Skeleton width="40%" height="15px" radius="4px" />
-            </div>
-          </div>
-          <div class="obra-card__figure">
-            <Skeleton width="50%" height="12px" radius="4px" />
-            <Skeleton width="70%" height="28px" />
-          </div>
-        </article>
-      </div>
-      <p v-else-if="error" class="estado-msg estado-msg--error">{{ error }}</p>
-      <p v-else-if="!obras.length" class="estado-msg">Todavía no hay obras. Creá la primera.</p>
-
-      <div v-else class="obra-grid">
-        <article
-          v-for="obra in obras"
-          :key="obra.id"
-          class="obra-card"
-          :class="{ 'obra-card--done': obra.estado === 'finalizada' }"
-          tabindex="0"
-          role="button"
-          @click="navigateTo(`/obras/${obra.slug || obra.id}`)"
-          @keydown.enter="navigateTo(`/obras/${obra.slug || obra.id}`)"
-        >
-          <div class="obra-card__head">
-            <div class="obra-card__id">
-              <h2 class="obra-card__name">{{ obra.nombre_direccion }}</h2>
-              <p class="obra-card__client">{{ obra.cliente_nombre }}</p>
-            </div>
-            <div class="obra-card__meta">
-              <span v-if="obra.estado === 'finalizada'" class="estado estado--finalizada">finalizada</span>
-              <div class="menu">
-                <button
-                  type="button"
-                  class="btn-icon"
-                  aria-label="Acciones de la obra"
-                  :aria-expanded="menuAbierto === obra.id"
-                  @click.stop="toggleMenu(obra.id)"
-                >
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                    <circle cx="8" cy="3" r="1.5" />
-                    <circle cx="8" cy="8" r="1.5" />
-                    <circle cx="8" cy="13" r="1.5" />
-                  </svg>
-                </button>
-                <div v-if="menuAbierto === obra.id" class="menu__pop" @click.stop>
-                  <button type="button" class="menu__item" @click="abrirDuplicar(obra)">
-                    Duplicar obra
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="obra-card__figure">
-            <span class="obra-card__figure-label">A cobrar</span>
-            <span class="obra-card__figure-value monto" :class="{ 'monto--faint': Number(obra.saldo_a_cobrar_ars) === 0 }">
-              {{ Number(obra.saldo_a_cobrar_ars) === 0 ? 'Saldada' : fmt(obra.saldo_a_cobrar_ars) }}
-            </span>
-          </div>
-        </article>
-      </div>
-    </main>
-
-    <DuplicarObraDialog
-      :open="!!obraADuplicar"
-      :obra="obraADuplicar"
-      :procesando="duplicando"
-      :error="errorDuplicar"
-      @cerrar="cerrarDuplicar"
-      @confirmar="confirmarDuplicar"
-    />
-  </div>
-</template>
 
 <style scoped>
 /* ===== Balance hero ===== */
@@ -212,6 +223,17 @@ const totalEnCaja = computed(() => obras.value.reduce((acc, o) => acc + Number(o
   color: var(--ink-muted);
 }
 .balance__aside-value { font-size: 23px; }
+
+/* ===== Buscador ===== */
+.section-head__actions { display: flex; align-items: center; gap: 10px; }
+.obra-search {
+  width: 240px;
+  background-image: url("data:image/svg+xml,%3Csvg width='15' height='15' viewBox='0 0 15 15' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='6.5' cy='6.5' r='5' stroke='%23A8A59D' stroke-width='1.5'/%3E%3Cpath d='M13.5 13.5l-3-3' stroke='%23A8A59D' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: left 13px center;
+  padding-left: 36px;
+}
+.obra-search::-webkit-search-cancel-button { -webkit-appearance: none; }
 
 /* ===== Grid de obras ===== */
 .obra-grid {
@@ -299,5 +321,8 @@ const totalEnCaja = computed(() => obras.value.reduce((acc, o) => acc + Number(o
 @media (max-width: 560px) {
   .balance { grid-template-columns: 1fr; align-items: start; gap: 18px; }
   .balance__aside { align-items: flex-start; text-align: left; }
+  .section-head { flex-wrap: wrap; gap: 12px; }
+  .section-head__actions { width: 100%; }
+  .obra-search { flex: 1; width: auto; min-width: 0; }
 }
 </style>

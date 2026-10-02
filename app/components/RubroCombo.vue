@@ -1,64 +1,3 @@
-<script setup>
-// Combobox de rubro reusable: input libre + sugerencias propias.
-// Si el rubro no está en la lista, se puede escribir uno nuevo igual.
-const props = defineProps({
-  modelValue: { type: String, default: '' },
-  placeholder: { type: String, default: 'Ej: Albañilería (o escribí uno nuevo)' },
-  invalid: { type: Boolean, default: false },
-  // Sugerencias: los rubros reales de la DB (nombres). Si no se pasan, carga solo.
-  rubros: { type: Array, default: null },
-})
-const emit = defineEmits(['update:modelValue'])
-
-// Rubros para sugerencias: usa los que llegan por prop, o los trae de la DB.
-const rubrosCargados = ref([])
-const rubrosExistentes = computed(() =>
-  (props.rubros ?? rubrosCargados.value).map((r) => (typeof r === 'string' ? r : r.nombre)),
-)
-
-const valor = computed({
-  get: () => props.modelValue,
-  set: (v) => emit('update:modelValue', v),
-})
-
-const open = ref(false)
-const box = ref(null)
-const filtrados = computed(() => {
-  const q = valor.value.trim().toLowerCase()
-  if (!q) return rubrosExistentes.value
-  return rubrosExistentes.value.filter((r) => r.toLowerCase().includes(q))
-})
-// ¿lo que escribió es un rubro nuevo (no está en la lista)?
-const esNuevo = computed(() => {
-  const q = valor.value.trim().toLowerCase()
-  return q.length > 0 && !rubrosExistentes.value.some((r) => r.toLowerCase() === q)
-})
-
-function elegir(r) {
-  valor.value = r
-  open.value = false
-}
-
-onMounted(async () => {
-  // Cargar rubros de la DB para sugerencias (salvo que lleguen por prop)
-  if (!props.rubros) {
-    try {
-      const { getRubros } = useDb()
-      rubrosCargados.value = await getRubros()
-    } catch (e) {
-      console.error('No se pudieron cargar los rubros', e)
-    }
-  }
-
-  // Cerrar al hacer click afuera
-  const handler = (e) => {
-    if (box.value && !box.value.contains(e.target)) open.value = false
-  }
-  document.addEventListener('click', handler)
-  onUnmounted(() => document.removeEventListener('click', handler))
-})
-</script>
-
 <template>
   <div ref="box" class="combo">
     <input
@@ -94,6 +33,67 @@ onMounted(async () => {
     </div>
   </div>
 </template>
+
+<script setup>
+// Combobox de rubro reusable: input libre + sugerencias propias.
+// Si el rubro no está en la lista, se puede escribir uno nuevo igual.
+const props = defineProps({
+  modelValue: { type: String, default: '' },
+  placeholder: { type: String, default: 'Ej: Albañilería (o escribí uno nuevo)' },
+  invalid: { type: Boolean, default: false },
+  // Sugerencias: los rubros reales de la DB (nombres). Si no se pasan, carga solo.
+  rubros: { type: Array, default: null },
+})
+const emit = defineEmits(['update:modelValue'])
+
+// Rubros para sugerencias: usa los que llegan por prop, o los trae de la DB.
+const rubrosCargados = ref([])
+const rubrosExistentes = computed(() =>
+  (props.rubros ?? rubrosCargados.value).map((r) => (typeof r === 'string' ? r : r.nombre)),
+)
+
+const valor = computed({
+  get: () => props.modelValue,
+  set: (v) => emit('update:modelValue', v),
+})
+
+const open = ref(false)
+const box = ref(null)
+const filtrados = computed(() => {
+  const q = valor.value.trim().toLowerCase()
+  if (!q) return rubrosExistentes.value
+  return rubrosExistentes.value.filter((r) => empiezaCon(r, q))
+})
+// ¿lo que escribió es un rubro nuevo (no está en la lista)?
+const esNuevo = computed(() => {
+  const q = valor.value.trim().toLowerCase()
+  return q.length > 0 && !rubrosExistentes.value.some((r) => r.toLowerCase() === q)
+})
+
+function elegir(r) {
+  valor.value = r
+  open.value = false
+}
+
+onMounted(async () => {
+  // Cargar rubros de la DB para sugerencias (salvo que lleguen por prop)
+  if (!props.rubros) {
+    try {
+      const { getRubros } = useDb()
+      rubrosCargados.value = await getRubros()
+    } catch (e) {
+      console.error('No se pudieron cargar los rubros', e)
+    }
+  }
+
+  // Cerrar al hacer click afuera
+  const handler = (e) => {
+    if (box.value && !box.value.contains(e.target)) open.value = false
+  }
+  document.addEventListener('click', handler)
+  onUnmounted(() => document.removeEventListener('click', handler))
+})
+</script>
 
 <style scoped>
 .combo { position: relative; }

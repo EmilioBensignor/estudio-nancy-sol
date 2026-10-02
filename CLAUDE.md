@@ -67,7 +67,7 @@ Fuente única de verdad. Las páginas usan clases compartidas y un `<style scope
   Proveedores / Retiros. Aplica a todas las pantallas.
 - **Ancho**: `.shell` max 1250px. Forms internos a 720 con `.form-narrow`.
 - **Page header**: `.page-header` (back arriba, fila título + acciones). Igual en todas.
-- **Tipografía mínima 16px** en desktop (tabla, inputs y tabs 16; botones 15; labels 13).
+- **Tipografía mínima 16px** en desktop (inputs y tabs 16; botones 15; labels 13). Excepción: `.table` va en 14px con filas compactas, para ver más renglones (pedido del estudio).
 - **Paleta**: crema (`--bg`) + ink + terracota (`--accent`), más semánticos positive/negative/warning.
 - **Montos**: clase `.monto` (DM Mono, tabular-nums, sin cortes de línea). `fmt()` conserva
   siempre el signo: nunca `Math.abs` sin signo.

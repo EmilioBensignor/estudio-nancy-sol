@@ -471,10 +471,10 @@ select.field { appearance: none; cursor: pointer; padding-right: 34px;
 /* =========================================
    Tabla
    ========================================= */
-.table { width: 100%; border-collapse: collapse; font-size: 16px; }
+.table { width: 100%; border-collapse: collapse; font-size: 14px; line-height: 1.35; }
 
 .table th {
-  padding: 13px 18px;
+  padding: 10px 14px;
   text-align: left;
   font-size: 12px;
   font-weight: 600;
@@ -487,7 +487,7 @@ select.field { appearance: none; cursor: pointer; padding-right: 34px;
 .table th.num, .table td.num { text-align: right; }
 
 .table td {
-  padding: 15px 18px;
+  padding: 8px 14px;
   border-bottom: 1px solid var(--border-subtle);
   vertical-align: middle;
 }
@@ -498,7 +498,7 @@ select.field { appearance: none; cursor: pointer; padding-right: 34px;
 .cell-date {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 15px;
+  font-size: 14px;
   color: var(--ink-muted);
   white-space: nowrap;
 }

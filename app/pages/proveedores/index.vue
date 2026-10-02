@@ -1,56 +1,3 @@
-<script setup>
-// Proveedores por rubro (hoja Data del Excel). Leídos de la DB.
-const { getProveedores } = useDb()
-
-const lista = ref([])
-const cargando = ref(true)
-const error = ref('')
-
-onMounted(async () => {
-  try {
-    lista.value = await getProveedores()
-  } catch (e) {
-    error.value = 'No se pudieron cargar los proveedores.'
-    console.error(e)
-  } finally {
-    cargando.value = false
-  }
-})
-
-const busqueda = ref('')
-const ordenCol = ref('rubro')
-const ordenDir = ref('asc')
-
-function ordenarPor(col) {
-  if (ordenCol.value === col) {
-    ordenDir.value = ordenDir.value === 'asc' ? 'desc' : 'asc'
-  } else {
-    ordenCol.value = col
-    ordenDir.value = 'asc'
-  }
-}
-
-function valor(p, col) {
-  if (col === 'rubro') return p.rubro?.nombre || ''
-  return p[col] || ''
-}
-
-const proveedores = computed(() => {
-  const q = busqueda.value.trim().toLowerCase()
-  const filtrados = q
-    ? lista.value.filter((p) =>
-        [p.nombre, p.rubro?.nombre, p.telefono, p.cuit].some((v) => (v || '').toLowerCase().includes(q)),
-      )
-    : [...lista.value]
-  const dir = ordenDir.value === 'asc' ? 1 : -1
-  return filtrados.sort((a, b) => {
-    const cmp = valor(a, ordenCol.value).localeCompare(valor(b, ordenCol.value))
-    return (cmp || a.nombre.localeCompare(b.nombre)) * dir
-  })
-})
-const rubrosCount = computed(() => new Set(lista.value.map((p) => p.rubro?.nombre).filter(Boolean)).size)
-</script>
-
 <template>
   <div class="shell">
     <header class="page-header">
@@ -127,6 +74,57 @@ const rubrosCount = computed(() => new Set(lista.value.map((p) => p.rubro?.nombr
     </section>
   </div>
 </template>
+
+<script setup>
+// Proveedores por rubro (hoja Data del Excel). Leídos de la DB.
+const { getProveedores } = useDb()
+
+const lista = ref([])
+const cargando = ref(true)
+const error = ref('')
+
+onMounted(async () => {
+  try {
+    lista.value = await getProveedores()
+  } catch (e) {
+    error.value = 'No se pudieron cargar los proveedores.'
+    console.error(e)
+  } finally {
+    cargando.value = false
+  }
+})
+
+const busqueda = ref('')
+const ordenCol = ref('rubro')
+const ordenDir = ref('asc')
+
+function ordenarPor(col) {
+  if (ordenCol.value === col) {
+    ordenDir.value = ordenDir.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    ordenCol.value = col
+    ordenDir.value = 'asc'
+  }
+}
+
+function valor(p, col) {
+  if (col === 'rubro') return p.rubro?.nombre || ''
+  return p[col] || ''
+}
+
+const proveedores = computed(() => {
+  const q = busqueda.value.trim()
+  const filtrados = q
+    ? lista.value.filter((p) => [p.nombre, p.rubro?.nombre, p.telefono, p.cuit].some((v) => empiezaCon(v, q)))
+    : [...lista.value]
+  const dir = ordenDir.value === 'asc' ? 1 : -1
+  return filtrados.sort((a, b) => {
+    const cmp = valor(a, ordenCol.value).localeCompare(valor(b, ordenCol.value))
+    return (cmp || a.nombre.localeCompare(b.nombre)) * dir
+  })
+})
+const rubrosCount = computed(() => new Set(lista.value.map((p) => p.rubro?.nombre).filter(Boolean)).size)
+</script>
 
 <style scoped>
 .table--prov { table-layout: fixed; }
