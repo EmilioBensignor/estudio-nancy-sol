@@ -189,10 +189,13 @@
     </div>
 
     <div v-else-if="tab === 'presupuesto'" class="tabpanel">
-      <section class="panel">
+      <section ref="panelPresupuesto" class="panel panel--presupuesto">
         <div class="panel__head split">
           <span class="eyebrow">Ítems del presupuesto</span>
           <div class="panel__head-actions">
+            <button type="button" class="btn btn--secondary btn--sm" @click="togglePantallaCompleta">
+              {{ pantallaCompleta ? 'Salir de pantalla completa' : 'Pantalla completa' }}
+            </button>
             <div class="toggle-prov">
               <span>Proveedor en PDF</span>
               <button type="button" class="switch" :class="{ 'switch--on': mostrarProveedor }" role="switch" :aria-checked="mostrarProveedor" @click="mostrarProveedor = !mostrarProveedor">
@@ -834,6 +837,19 @@ const deudaPorProveedor = computed(() => {
 const deudaTotal = computed(() => deudaPorProveedor.value.reduce((a, p) => a + p.presupuestado, 0))
 const pagadoTotal = computed(() => deudaPorProveedor.value.reduce((a, p) => a + p.pagado, 0))
 
+// Pantalla completa del presupuesto (Fullscreen API): mismo panel, sigue siendo editable.
+const panelPresupuesto = ref(null)
+const pantallaCompleta = ref(false)
+function togglePantallaCompleta() {
+  if (document.fullscreenElement) document.exitFullscreen()
+  else panelPresupuesto.value?.requestFullscreen()
+}
+function onFullscreenChange() {
+  pantallaCompleta.value = !!document.fullscreenElement
+}
+onMounted(() => document.addEventListener('fullscreenchange', onFullscreenChange))
+onUnmounted(() => document.removeEventListener('fullscreenchange', onFullscreenChange))
+
 const itemFormOpen = ref(false)
 const costoInput = ref(null)
 const editandoItemId = ref(null)
@@ -1324,6 +1340,7 @@ function cambiarTab(id) {
   background: transparent; border: none; color: var(--ink-muted);
   cursor: pointer; transition: color 150ms var(--ease-out); padding: 6px;
 }
+.panel--presupuesto:fullscreen { overflow-y: auto; border-radius: 0; border: none; }
 .table .icon-btn { padding: 2px 5px; }
 .icon-btn:hover { color: var(--ink); }
 .icon-btn--danger:hover { color: var(--negative); }
