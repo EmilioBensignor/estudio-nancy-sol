@@ -145,6 +145,8 @@ Hecho:
 - Tab Proveedores: deuda por proveedor (presupuestado − pagado); debo negativo en rojo.
 - Presupuesto: total en footer; toggle "Proveedor en PDF" (solo afecta el PDF).
 - Jessica y switches de quién retira por obra (migración 021). Al Río C: Solana y Jessica 50/50.
+- Ítems apagados (`presupuesto_items.incluido`, migración 022): aparecen sin valor en tabla y PDF y
+  no suman en ningún lado, porque `v_presupuesto_items` multiplica todos los `*_ars` por `incluido`.
 - `supabase/migrations/` tiene el historial completo, con las mismas versiones que la base.
 
 Pendiente:

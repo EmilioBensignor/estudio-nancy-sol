@@ -78,7 +78,7 @@ const totalValor = computed(() => props.items.reduce((a, i) => a + Number(i.valo
             <td class="col-rubro">{{ fila.it.rubro?.nombre || '—' }}</td>
             <td v-if="mostrarProveedor" class="col-prov">{{ fila.it.proveedor?.nombre || '—' }}</td>
             <td class="col-detalle">{{ fila.it.detalle }}</td>
-            <td class="col-num mono">{{ fmt(fila.it.valor_final_ars) }}</td>
+            <td class="col-num mono">{{ fila.it.incluido ? fmt(fila.it.valor_final_ars) : '' }}</td>
           </tr>
           <tr v-else class="doc__subtotal">
             <td :colspan="mostrarProveedor ? 3 : 2" class="doc__subtotal-label">Subtotal {{ fila.rubro }}</td>

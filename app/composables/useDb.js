@@ -227,7 +227,7 @@ export function useDb() {
 
     const { data: items, error: e2 } = await sb()
       .from('presupuesto_items')
-      .select('fecha, proveedor_id, rubro_id, detalle, valor_proveedor, moneda_proveedor, tc_proveedor, valor_presupuesto, moneda, tc_item, valor_final, notas')
+      .select('fecha, proveedor_id, rubro_id, detalle, valor_proveedor, moneda_proveedor, tc_proveedor, valor_presupuesto, moneda, tc_item, valor_final, notas, incluido')
       .eq('obra_id', obraId)
     if (e2) throw e2
 
@@ -313,7 +313,7 @@ export function useDb() {
   async function getPresupuestoCliente(obraId) {
     const { data, error } = await sb()
       .from('v_presupuesto_items')
-      .select('id, detalle, valor_presupuesto_ars, valor_final_ars, honorario_ars, total_ars, rubro:rubros(nombre), proveedor:proveedores(nombre)')
+      .select('id, detalle, incluido, valor_presupuesto_ars, valor_final_ars, honorario_ars, total_ars, rubro:rubros(nombre), proveedor:proveedores(nombre)')
       .eq('obra_id', obraId)
       .order('fecha')
     if (error) throw error

@@ -283,6 +283,12 @@
           </div>
 
           <div class="item-form__actions">
+            <div class="toggle-prov">
+              <span>Suma al subtotal</span>
+              <button type="button" class="switch" :class="{ 'switch--on': formItem.incluido }" role="switch" :aria-checked="formItem.incluido" @click="formItem.incluido = !formItem.incluido; delete errItem.valor">
+                <span class="switch__knob"></span>
+              </button>
+            </div>
             <button type="submit" class="btn btn--primary" :disabled="guardandoItem">{{ guardandoItem ? 'Guardando…' : (editandoItemId ? 'Guardar cambios' : 'Agregar ítem') }}</button>
           </div>
         </form>
@@ -300,13 +306,16 @@
           </thead>
           <tbody>
             <template v-for="(fila, i) in filasPresupuesto" :key="fila.tipo === 'item' ? fila.it.id : `sub-${i}`">
-              <tr v-if="fila.tipo === 'item'" :class="{ 'row--editando': editandoItemId === fila.it.id, 'row--repite': fila.repite }">
+              <tr v-if="fila.tipo === 'item'" :class="{ 'row--editando': editandoItemId === fila.it.id, 'row--repite': fila.repite, 'row--apagado': !fila.it.incluido }">
                 <td class="cell-strong cell-nowrap">{{ fila.repite ? '' : fila.it.rubro?.nombre || '—' }}</td>
                 <td class="cell-muted cell-nowrap">{{ fila.repite ? '' : fila.it.proveedor?.nombre || '—' }}</td>
                 <td class="cell-muted">{{ fila.it.detalle || '—' }}</td>
-                <td class="num monto">{{ fmt(fila.it.valor_final_ars) }}</td>
+                <td class="num monto">{{ fila.it.incluido ? fmt(fila.it.valor_final_ars) : Number(fila.it.valor_final) ? fmt(fila.it.valor_final) : '—' }}</td>
                 <td class="cell-acciones">
                   <div class="cell-acciones__inner">
+                    <button type="button" class="switch" :class="{ 'switch--on': fila.it.incluido }" role="switch" :aria-checked="fila.it.incluido" :title="fila.it.incluido ? 'Suma al subtotal' : 'No suma al subtotal'" @click="toggleIncluido(fila.it)">
+                      <span class="switch__knob"></span>
+                    </button>
                     <button type="button" class="icon-btn" title="Editar" @click="editarItem(fila.it)">
                       <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
                         <path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10l7.5-7.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
@@ -876,7 +885,7 @@ const mostrarProveedor = ref(false)
 const mostrarSubtotales = ref(false)
 // costo = valor proveedor [interno]; adicional = sobreprecio sobre el costo (switch);
 // valor presupuesto = costo + adicional; valor final = lo que paga el cliente (default = presupuesto).
-const formItemVacio = () => ({ proveedorId: '', rubro: '', detalle: '', costo: '', adicionalOn: false, adicional: '', valor: '', notas: '' })
+const formItemVacio = () => ({ proveedorId: '', rubro: '', detalle: '', costo: '', adicionalOn: false, adicional: '', valor: '', notas: '', incluido: true })
 const formItem = reactive(formItemVacio())
 const guardandoItem = ref(false)
 const errItem = reactive({})
@@ -938,6 +947,7 @@ function editarItem(it) {
     adicional: adicional === 0 ? '' : String(adicional),
     valor: String(it.valor_final ?? ''),
     notas: it.notas || '',
+    incluido: it.incluido,
   })
   valorEditado.value = Number(it.valor_final) !== Number(it.valor_presupuesto)
   Object.keys(errItem).forEach((k) => delete errItem[k])
@@ -954,14 +964,14 @@ function cancelarItem() {
 async function agregarItem() {
   Object.keys(errItem).forEach((k) => delete errItem[k])
   if (!formItem.rubro.trim()) errItem.rubro = 'Elegí o escribí un rubro.'
-  if (!formItem.valor || Number(formItem.valor) <= 0) errItem.valor = 'Ingresá un valor mayor a cero.'
+  if (formItem.incluido && !(Number(formItem.valor) > 0)) errItem.valor = 'Ingresá un valor mayor a cero.'
   if (Object.keys(errItem).length) return
 
   guardandoItem.value = true
   try {
     const rubroId = await db.resolverRubroId(formItem.rubro)
     const costo = Number(formItem.costo) || 0
-    const final = Number(formItem.valor)
+    const final = Number(formItem.valor) || 0
     const presupuesto = presupuestoItem.value
     const payload = {
       rubro_id: rubroId,
@@ -973,6 +983,7 @@ async function agregarItem() {
       notas: formItem.notas.trim() || null,
       moneda: 'ARS',
       moneda_proveedor: 'ARS',
+      incluido: formItem.incluido,
     }
     const esAlta = !editandoItemId.value
     if (esAlta) {
@@ -994,6 +1005,15 @@ async function agregarItem() {
     console.error(e)
   } finally {
     guardandoItem.value = false
+  }
+}
+
+async function toggleIncluido(it) {
+  try {
+    await db.actualizarItem(it.id, { incluido: !it.incluido })
+    await Promise.all([cargarItems(), cargarControl(), cargarConvergencia()])
+  } catch (e) {
+    console.error(e)
   }
 }
 
@@ -1351,7 +1371,7 @@ function cambiarTab(id) {
 
 /* Acciones por fila (editar / borrar) */
 .cell-acciones { width: 1%; white-space: nowrap; text-align: right; }
-.cell-acciones__inner { display: inline-flex; gap: 4px; }
+.cell-acciones__inner { display: inline-flex; align-items: center; gap: 4px; }
 .icon-btn {
   display: flex; align-items: center; justify-content: center;
   background: transparent; border: none; color: var(--ink-muted);
@@ -1498,7 +1518,7 @@ function cambiarTab(id) {
   line-height: 1.4;
 }
 .money-note strong { color: var(--ink); font-weight: 600; }
-.item-form__actions { display: flex; justify-content: flex-end; }
+.item-form__actions { display: flex; justify-content: flex-end; align-items: center; gap: 20px; }
 
 .cell-strong { font-weight: 600; color: var(--ink); }
 .cell-nowrap { white-space: nowrap; }
@@ -1507,6 +1527,7 @@ function cambiarTab(id) {
 .table tfoot td { padding: 10px 14px; border-top: 1px solid var(--border); background: var(--surface-raised); }
 .cell-total-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-muted); }
 .cell-total { font-weight: 600; font-size: 16px; color: var(--ink); }
+.row--apagado td:not(.cell-acciones) { opacity: 0.45; }
 .row--subtotal td { background: var(--surface-raised); font-weight: 600; }
 .table tbody tr:has(+ .row--repite) td { border-bottom-color: transparent; }
 .cell-subtotal-label { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-muted); }
