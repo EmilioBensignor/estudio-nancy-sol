@@ -1,41 +1,3 @@
-<script setup>
-// Documento imprimible del presupuesto para el cliente.
-// SOLO columnas F–K (rubro, detalle, valor, honorarios, total). Nunca costo ni ganancia.
-// Se renderiza oculto en el detalle de obra; al imprimir (@media print) queda solo esta hoja.
-import { fmtArs as fmt, agruparPorRubro } from '~/composables/useFormato'
-
-const props = defineProps({
-  obra: { type: Object, default: null },
-  items: { type: Array, default: () => [] },
-  mostrarProveedor: { type: Boolean, default: false },
-  mostrarSubtotales: { type: Boolean, default: false },
-})
-
-// La view devuelve los items por fecha; para agrupar por rubro hay que ordenarlos
-// primero (si no, un rubro intercalado parte el grupo y el subtotal da mal).
-const itemsOrdenados = computed(() =>
-  [...props.items].sort(
-    (a, b) =>
-      (a.rubro?.nombre || '').localeCompare(b.rubro?.nombre || '') ||
-      (a.detalle || '').localeCompare(b.detalle || ''),
-  ),
-)
-
-// Filas con subtotal por rubro intercalado; sin subtotales queda solo la lista de items.
-const filas = computed(() =>
-  props.mostrarSubtotales
-    ? agruparPorRubro(itemsOrdenados.value)
-    : itemsOrdenados.value.map((it) => ({ tipo: 'item', it })),
-)
-
-const hoy = new Date()
-const fechaEmision = `${String(hoy.getDate()).padStart(2, '0')}/${String(hoy.getMonth() + 1).padStart(2, '0')}/${hoy.getFullYear()}`
-
-const totalGeneral = computed(() => props.items.reduce((a, i) => a + Number(i.total_ars || 0), 0))
-const totalHonorarios = computed(() => props.items.reduce((a, i) => a + Number(i.honorario_ars || 0), 0))
-const totalValor = computed(() => props.items.reduce((a, i) => a + Number(i.valor_final_ars || 0), 0))
-</script>
-
 <template>
   <article class="doc" data-doc-presupuesto>
     <header class="doc__head">
@@ -99,6 +61,16 @@ const totalValor = computed(() => props.items.reduce((a, i) => a + Number(i.valo
           <td :colspan="mostrarProveedor ? 3 : 2" class="doc__total-label">Total</td>
           <td class="col-num mono doc__total-value">{{ fmt(totalGeneral) }}</td>
         </tr>
+        <template v-if="pagado">
+          <tr>
+            <td :colspan="mostrarProveedor ? 3 : 2" class="doc__total-label">Pagado a cuenta</td>
+            <td class="col-num mono">{{ fmt(pagado) }}</td>
+          </tr>
+          <tr>
+            <td :colspan="mostrarProveedor ? 3 : 2" class="doc__total-label">Saldo</td>
+            <td class="col-num mono doc__total-value">{{ fmt(saldo) }}</td>
+          </tr>
+        </template>
       </tfoot>
     </table>
 
@@ -112,6 +84,47 @@ const totalValor = computed(() => props.items.reduce((a, i) => a + Number(i.valo
     </section>
   </article>
 </template>
+
+<script setup>
+// Documento imprimible del presupuesto para el cliente.
+// SOLO columnas F–K (rubro, detalle, valor, honorarios, total). Nunca costo ni ganancia.
+// Se renderiza oculto en el detalle de obra; al imprimir (@media print) queda solo esta hoja.
+import { fmtArs as fmt, agruparPorRubro } from '~/composables/useFormato'
+
+const props = defineProps({
+  obra: { type: Object, default: null },
+  items: { type: Array, default: () => [] },
+  mostrarProveedor: { type: Boolean, default: false },
+  mostrarSubtotales: { type: Boolean, default: false },
+  // Cobros del cliente en ARS: si hay, el pie suma "Pagado a cuenta" y "Saldo"
+  pagado: { type: Number, default: 0 },
+})
+
+// La view devuelve los items por fecha; para agrupar por rubro hay que ordenarlos
+// primero (si no, un rubro intercalado parte el grupo y el subtotal da mal).
+const itemsOrdenados = computed(() =>
+  [...props.items].sort(
+    (a, b) =>
+      (a.rubro?.nombre || '').localeCompare(b.rubro?.nombre || '') ||
+      (a.detalle || '').localeCompare(b.detalle || ''),
+  ),
+)
+
+// Filas con subtotal por rubro intercalado; sin subtotales queda solo la lista de items.
+const filas = computed(() =>
+  props.mostrarSubtotales
+    ? agruparPorRubro(itemsOrdenados.value)
+    : itemsOrdenados.value.map((it) => ({ tipo: 'item', it })),
+)
+
+const hoy = new Date()
+const fechaEmision = `${String(hoy.getDate()).padStart(2, '0')}/${String(hoy.getMonth() + 1).padStart(2, '0')}/${hoy.getFullYear()}`
+
+const totalGeneral = computed(() => props.items.reduce((a, i) => a + Number(i.total_ars || 0), 0))
+const totalHonorarios = computed(() => props.items.reduce((a, i) => a + Number(i.honorario_ars || 0), 0))
+const totalValor = computed(() => props.items.reduce((a, i) => a + Number(i.valor_final_ars || 0), 0))
+const saldo = computed(() => totalGeneral.value - props.pagado)
+</script>
 
 <style scoped>
 /* Documento A4 (210mm ≈ 794px a 96dpi) */

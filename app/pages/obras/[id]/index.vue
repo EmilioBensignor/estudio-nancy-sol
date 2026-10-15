@@ -510,6 +510,7 @@
         :items="itemsExport"
         :mostrar-proveedor="mostrarProveedor"
         :mostrar-subtotales="mostrarSubtotales"
+        :pagado="totalCobros"
       />
       <DocumentoReporte
         v-else-if="docActivo === 'cobros'"
