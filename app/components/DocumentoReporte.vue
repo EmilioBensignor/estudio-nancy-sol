@@ -58,6 +58,7 @@ function celda(fila, col) {
 
     <table class="doc__table">
       <thead>
+        <tr class="doc__page-gap" aria-hidden="true"><th :colspan="columnas.length"></th></tr>
         <tr>
           <th v-for="col in columnas" :key="col.key" :class="{ 'col-num': col.num }">{{ col.label }}</th>
         </tr>
@@ -70,11 +71,14 @@ function celda(fila, col) {
           <td v-for="col in columnas" :key="col.key" :class="[col.num ? 'col-num mono' : '']">{{ celda(fila, col) }}</td>
         </tr>
       </tbody>
-      <tfoot v-if="totales.length">
+      <tbody v-if="totales.length" class="doc__totales">
         <tr v-for="(t, i) in totales" :key="i">
           <td :colspan="columnas.length - 1" class="doc__total-label">{{ t.label }}</td>
           <td class="col-num mono doc__total-value">{{ typeof t.valor === 'number' ? fmt(t.valor) : t.valor }}</td>
         </tr>
+      </tbody>
+      <tfoot>
+        <tr class="doc__page-gap" aria-hidden="true"><td :colspan="columnas.length"></td></tr>
       </tfoot>
     </table>
   </article>
@@ -143,11 +147,18 @@ function celda(fila, col) {
 .mono { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .doc__vacio { color: #6b6860; font-style: italic; }
 
-.doc__table tfoot td { padding: 16px 10px; border-top: 2px solid #1c1a17; border-bottom: none; }
+.doc__table tr { break-inside: avoid; }
+.doc__table .doc__totales td { padding: 16px 10px; border-top: 2px solid #1c1a17; border-bottom: none; }
 .doc__total-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
 .doc__total-value { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
 
+/* Margen de hoja repetido en cada página: ver DocumentoPresupuesto.vue */
+.doc__page-gap { display: none; }
+
 @media print {
+  .doc__page-gap { display: table-row; }
+  .doc__page-gap th, .doc__page-gap td { height: 16mm; padding: 0; border: none; }
+  .doc__table { margin-top: -16mm; }
   .doc { max-width: none; padding: 18mm 16mm; }
 }
 </style>

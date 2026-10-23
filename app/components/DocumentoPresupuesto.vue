@@ -27,6 +27,7 @@
 
     <table class="doc__table">
       <thead>
+        <tr class="doc__page-gap" aria-hidden="true"><th :colspan="mostrarProveedor ? 4 : 3"></th></tr>
         <tr>
           <th class="col-rubro">Rubro</th>
           <th v-if="mostrarProveedor" class="col-prov">Proveedor</th>
@@ -48,7 +49,7 @@
           </tr>
         </template>
       </tbody>
-      <tfoot>
+      <tbody class="doc__totales">
         <tr>
           <td :colspan="mostrarProveedor ? 3 : 2" class="doc__total-label">Subtotal</td>
           <td class="col-num mono">{{ fmt(totalValor) }}</td>
@@ -71,6 +72,9 @@
             <td class="col-num mono doc__total-value">{{ fmt(saldo) }}</td>
           </tr>
         </template>
+      </tbody>
+      <tfoot>
+        <tr class="doc__page-gap" aria-hidden="true"><td :colspan="mostrarProveedor ? 4 : 3"></td></tr>
       </tfoot>
     </table>
 
@@ -192,12 +196,13 @@ const saldo = computed(() => totalGeneral.value - props.pagado)
 .col-total { font-weight: 600; color: #1c1a17; }
 .mono { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
-.doc__table tfoot td { padding: 16px 10px; border-top: 2px solid #1c1a17; border-bottom: none; }
+.doc__table tr { break-inside: avoid; }
+.doc__table .doc__totales td { padding: 16px 10px; border-top: 2px solid #1c1a17; border-bottom: none; }
 .doc__total-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
 .doc__total-value { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
 
-.doc__subtotal td { background: #f4f1ea; border-top: 1px solid #d8d4cc; font-weight: 600; color: #1c1a17; }
-.doc__subtotal-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #6b6860; }
+.doc__subtotal td { font-weight: 600; color: #1c1a17; }
+.doc__subtotal-label { text-align: right; font-weight: 500; color: #6b6860; }
 
 .doc__notas {
   margin-top: 36px;
@@ -215,7 +220,15 @@ const saldo = computed(() => totalGeneral.value - props.pagado)
 
 /* Al imprimir: @page tiene margin 0 (oculta headers del navegador), así que
    el documento aporta su propio margen de hoja con padding. */
+/* La hoja no tiene margen (@page margin 0), así que el thead y el tfoot, que el navegador
+   repite en cada hoja, llevan una fila vacía que hace de margen arriba y abajo. En la primera
+   hoja el margin-top negativo compensa la fila de arriba. */
+.doc__page-gap { display: none; }
+
 @media print {
+  .doc__page-gap { display: table-row; }
+  .doc__page-gap th, .doc__page-gap td { height: 16mm; padding: 0; border: none; }
+  .doc__table { margin-top: -16mm; }
   .doc {
     max-width: none;
     margin: 0;

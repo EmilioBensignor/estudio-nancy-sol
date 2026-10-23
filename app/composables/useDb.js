@@ -133,6 +133,30 @@ export function useDb() {
     return data
   }
 
+  // Catálogo con la cantidad de proveedores e ítems que usan cada rubro (con usos no se borra).
+  async function getRubrosConUsos() {
+    const { data, error } = await sb()
+      .from('rubros')
+      .select('id, nombre, proveedores(count), presupuesto_items(count)')
+      .order('nombre')
+    if (error) throw error
+    return data.map((r) => ({
+      id: r.id,
+      nombre: r.nombre,
+      usos: (r.proveedores?.[0]?.count || 0) + (r.presupuesto_items?.[0]?.count || 0),
+    }))
+  }
+
+  async function actualizarRubro(id, nombre) {
+    const { error } = await sb().from('rubros').update({ nombre: nombre.trim() }).eq('id', id)
+    if (error) throw error
+  }
+
+  async function eliminarRubro(id) {
+    const { error } = await sb().from('rubros').delete().eq('id', id)
+    if (error) throw error
+  }
+
   // Busca un rubro por nombre (case-insensitive); si no existe lo crea. Devuelve el id.
   async function resolverRubroId(nombre) {
     const limpio = (nombre || '').trim()
@@ -419,7 +443,7 @@ export function useDb() {
     getClientes, getCliente, crearCliente, actualizarCliente, contarObrasDeCliente, eliminarCliente,
     getProveedores, getProveedor, crearProveedor, actualizarProveedor, contarUsosDeProveedor, eliminarProveedor,
     getDeudaProveedorPorObra,
-    getRubros, resolverRubroId,
+    getRubros, getRubrosConUsos, actualizarRubro, eliminarRubro, resolverRubroId,
     getObras, getObra, crearObra, duplicarObra, actualizarObra, contarUsosDeObra, eliminarObra, getSaldosObra, getControl,
     getItems, crearItem, actualizarItem, eliminarItem, getPresupuestoCliente,
     getMovimientos, crearMovimiento, actualizarMovimiento, eliminarMovimiento,

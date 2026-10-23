@@ -352,6 +352,18 @@
               <td class="num monto cell-total">{{ fmt(totalPresupuesto) }}</td>
               <td></td>
             </tr>
+            <template v-if="totalCobros">
+              <tr>
+                <td colspan="3" class="cell-total-label">Pagado a cuenta</td>
+                <td class="num monto monto--pos">{{ fmt(totalCobros) }}</td>
+                <td></td>
+              </tr>
+              <tr>
+                <td colspan="3" class="cell-total-label">Saldo</td>
+                <td class="num monto cell-total">{{ fmt(totalPresupuesto - totalCobros) }}</td>
+                <td></td>
+              </tr>
+            </template>
           </tfoot>
         </table>
 
@@ -375,6 +387,12 @@
             <span class="reparto__stat">Presupuestado <strong class="monto">{{ fmt(deudaTotal) }}</strong></span>
             <span class="reparto__stat">Pagado <strong class="monto monto--pos">{{ fmt(pagadoTotal) }}</strong></span>
             <span class="reparto__stat">Debo <strong class="monto monto--neg">{{ fmt(deudaTotal - pagadoTotal) }}</strong></span>
+            <div class="toggle-prov">
+              <span>Comparar con presupuesto</span>
+              <button type="button" class="switch" :class="{ 'switch--on': compararPresupuesto }" role="switch" :aria-checked="compararPresupuesto" @click="compararPresupuesto = !compararPresupuesto">
+                <span class="switch__knob"></span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -384,24 +402,29 @@
             <tr>
               <th>Rubro</th>
               <th>Proveedor</th>
+              <th>Detalle</th>
               <th class="num">Presupuestado</th>
+              <th v-if="compararPresupuesto" class="num">Valor final</th>
               <th class="num">Pagado</th>
               <th class="num">Debo</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="p in deudaPorProveedor" :key="`${p.nombre}|${p.rubro}`">
-              <td class="cell-strong">{{ p.rubro }}</td>
-              <td class="cell-muted">{{ p.nombre }}</td>
-              <td class="num monto">{{ fmt(p.presupuestado) }}</td>
-              <td class="num monto monto--pos">{{ fmt(p.pagado) }}</td>
-              <td class="num monto" :class="{ 'debo-exceso': p.debo < 0 }">{{ fmt(p.debo) }}</td>
+            <tr v-for="f in filasProveedores" :key="f.key" :class="{ 'row--repite': f.repite, 'row--apagado': f.it && !f.it.incluido }">
+              <td class="cell-strong cell-nowrap">{{ f.repite ? '' : f.rubro }}</td>
+              <td class="cell-muted cell-nowrap">{{ f.repite ? '' : f.nombre }}</td>
+              <td class="cell-muted">{{ f.it?.detalle || '—' }}</td>
+              <td class="num monto">{{ f.it?.incluido ? fmt(f.it.valor_proveedor_ars) : '—' }}</td>
+              <td v-if="compararPresupuesto" class="num monto">{{ f.it?.incluido ? fmt(f.it.valor_final_ars) : '—' }}</td>
+              <td class="num monto monto--pos">{{ f.grupo ? fmt(f.grupo.pagado) : '' }}</td>
+              <td class="num monto" :class="{ 'debo-exceso': f.grupo?.debo < 0 }">{{ f.grupo ? fmt(f.grupo.debo) : '' }}</td>
             </tr>
           </tbody>
           <tfoot>
             <tr>
-              <td colspan="2" class="cell-total-label">Total</td>
+              <td colspan="3" class="cell-total-label">Total</td>
               <td class="num monto">{{ fmt(deudaTotal) }}</td>
+              <td v-if="compararPresupuesto" class="num monto">{{ fmt(totalValorFinal) }}</td>
               <td class="num monto monto--pos">{{ fmt(pagadoTotal) }}</td>
               <td class="num monto cell-total">{{ fmt(deudaTotal - pagadoTotal) }}</td>
             </tr>
@@ -849,6 +872,25 @@ const deudaPorProveedor = computed(() => {
 })
 const deudaTotal = computed(() => deudaPorProveedor.value.reduce((a, p) => a + p.presupuestado, 0))
 const pagadoTotal = computed(() => deudaPorProveedor.value.reduce((a, p) => a + p.pagado, 0))
+
+// Tab Proveedores renglón por ítem, como el presupuesto. Pagado y Debo son por proveedor + rubro
+// (los pagos no tienen ítem), así que van en el primer renglón del grupo. Los proveedores con
+// pagos y sin ítems quedan al final con su propio renglón.
+const compararPresupuesto = ref(false)
+const filasProveedores = computed(() => {
+  const grupos = new Map(deudaPorProveedor.value.map((g) => [`${g.nombre}|${g.rubro}`, g]))
+  const filas = itemsOrdenados.value.map((it, i, arr) => {
+    const nombre = it.proveedor?.nombre || 'Sin asignar'
+    const rubro = it.rubro?.nombre || '—'
+    const prev = arr[i - 1]
+    const repite = !!prev && prev.rubro_id === it.rubro_id && prev.proveedor_id === it.proveedor_id
+    return { key: it.id, it, nombre, rubro, repite, grupo: repite ? null : grupos.get(`${nombre}|${rubro}`) }
+  })
+  for (const g of deudaPorProveedor.value) {
+    if (!g.presupuestado && !filas.some((f) => f.grupo === g)) filas.push({ key: `pago-${g.nombre}`, nombre: g.nombre, rubro: g.rubro, repite: false, grupo: g })
+  }
+  return filas
+})
 
 // Pantalla completa del presupuesto (Fullscreen API): mismo panel, sigue siendo editable.
 const panelPresupuesto = ref(null)
@@ -1529,9 +1571,10 @@ function cambiarTab(id) {
 .cell-total-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-muted); }
 .cell-total { font-weight: 600; font-size: 16px; color: var(--ink); }
 .row--apagado td:not(.cell-acciones) { opacity: 0.45; }
-.row--subtotal td { background: var(--surface-raised); font-weight: 600; }
+/* Subtotal como suma, no como título: sin fondo, alineado a la derecha junto al monto */
+.row--subtotal td { font-weight: 600; }
 .table tbody tr:has(+ .row--repite) td { border-bottom-color: transparent; }
-.cell-subtotal-label { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-muted); }
+.cell-subtotal-label { text-align: right; font-weight: 500; color: var(--ink-muted); }
 
 @media (max-width: 560px) {
   .mov-form { grid-template-columns: 1fr; }

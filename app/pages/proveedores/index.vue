@@ -8,6 +8,7 @@
         </div>
         <div class="page-header__actions">
           <input v-model="busqueda" type="search" class="field prov-search" placeholder="Buscar…" />
+          <NuxtLink to="/rubros" class="btn btn--secondary">Rubros</NuxtLink>
           <button class="btn btn--primary" @click="navigateTo('/proveedores/nuevo')">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
