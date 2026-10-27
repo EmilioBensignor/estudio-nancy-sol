@@ -110,7 +110,7 @@ const itemsOrdenados = computed(() =>
   [...props.items].sort(
     (a, b) =>
       (a.rubro?.nombre || '').localeCompare(b.rubro?.nombre || '') ||
-      (a.detalle || '').localeCompare(b.detalle || ''),
+      (a.created_at || '').localeCompare(b.created_at || ''),
   ),
 )
 

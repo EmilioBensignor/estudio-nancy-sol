@@ -235,8 +235,25 @@
             </div>
           </div>
 
+          <div v-if="modoVarios" class="varios">
+            <div class="varios__fila">
+              <span class="label">Detalle</span>
+              <span class="label">Valor final</span>
+            </div>
+            <div v-for="(fila, i) in filasVarios" :key="fila.key" class="varios__fila">
+              <input v-model="fila.detalle" :data-varios="`d${i}`" type="text" class="field" placeholder="Ej: Silla" @keydown.enter.prevent="enfocarVarios(`v${i}`)" />
+              <input v-model="fila.valor" :data-varios="`v${i}`" type="number" class="field field--num" placeholder="0" @keydown.enter.prevent="siguienteFilaVarios(i)" />
+              <button type="button" class="varios__quitar" aria-label="Quitar renglón" :disabled="filasVarios.length === 1" @click="filasVarios.splice(i, 1)">×</button>
+            </div>
+            <span v-if="errItem.varios" class="field-error">{{ errItem.varios }}</span>
+            <p class="money-note">
+              <span>Enter pasa al valor y después al renglón siguiente. Cada renglón se guarda como un ítem del rubro.</span>
+              <span>Un renglón sin valor queda como título (ej: "Dormitorio de mujeres:"), sin sumar.</span>
+            </p>
+          </div>
+
           <!-- Números: la cuenta costo + adicional → valor final -->
-          <fieldset class="item-form__money">
+          <fieldset v-if="!modoVarios" class="item-form__money">
             <div class="money-row">
               <div class="field-group">
                 <label class="label">Costo del proveedor</label>
@@ -271,7 +288,7 @@
           </fieldset>
 
           <!-- Detalle + notas -->
-          <div class="item-form__row">
+          <div v-if="!modoVarios" class="item-form__row">
             <div class="field-group">
               <label class="label">Detalle <span class="label-opt">(opcional)</span></label>
               <textarea v-model="formItem.detalle" rows="3" class="field field--area" placeholder="Ej: Demolición y contrapiso. Enter para otro renglón"></textarea>
@@ -283,13 +300,19 @@
           </div>
 
           <div class="item-form__actions">
-            <div class="toggle-prov">
+            <div v-if="!editandoItemId" class="toggle-prov">
+              <span>Varios ítems</span>
+              <button type="button" class="switch" :class="{ 'switch--on': modoVarios }" role="switch" :aria-checked="modoVarios" @click="modoVarios = !modoVarios">
+                <span class="switch__knob"></span>
+              </button>
+            </div>
+            <div v-if="!modoVarios" class="toggle-prov">
               <span>Suma al subtotal</span>
               <button type="button" class="switch" :class="{ 'switch--on': formItem.incluido }" role="switch" :aria-checked="formItem.incluido" @click="formItem.incluido = !formItem.incluido; delete errItem.valor">
                 <span class="switch__knob"></span>
               </button>
             </div>
-            <button type="submit" class="btn btn--primary" :disabled="guardandoItem">{{ guardandoItem ? 'Guardando…' : (editandoItemId ? 'Guardar cambios' : 'Agregar ítem') }}</button>
+            <button type="submit" class="btn btn--primary" :disabled="guardandoItem">{{ guardandoItem ? 'Guardando…' : (editandoItemId ? 'Guardar cambios' : modoVarios ? 'Agregar ítems' : 'Agregar ítem') }}</button>
           </div>
         </form>
 
@@ -809,13 +832,13 @@ function esPositivo(n) {
   return Number(n) >= 0
 }
 
-// Ordenado por rubro, proveedor y detalle para leer agrupado. No afecta los totales.
+// Ordenado por rubro, proveedor y orden de carga para leer agrupado. No afecta los totales.
 const itemsOrdenados = computed(() =>
   [...items.value].sort(
     (a, b) =>
       (a.rubro?.nombre || '').localeCompare(b.rubro?.nombre || '') ||
       (a.proveedor?.nombre || '').localeCompare(b.proveedor?.nombre || '') ||
-      (a.detalle || '').localeCompare(b.detalle || ''),
+      (a.created_at || '').localeCompare(b.created_at || ''),
   ),
 )
 
@@ -971,8 +994,59 @@ function onProveedorItem() {
   }
 }
 
+const modoVarios = ref(false)
+let keyVarios = 0
+const filaVariosVacia = () => ({ key: keyVarios++, detalle: '', valor: '' })
+const filasVarios = ref([filaVariosVacia()])
+
+function enfocarVarios(id) {
+  nextTick(() => document.querySelector(`[data-varios="${id}"]`)?.focus())
+}
+function siguienteFilaVarios(i) {
+  if (i === filasVarios.value.length - 1) filasVarios.value.push(filaVariosVacia())
+  enfocarVarios(`d${i + 1}`)
+}
+
+async function guardarVarios() {
+  Object.keys(errItem).forEach((k) => delete errItem[k])
+  const filas = filasVarios.value.filter((f) => f.detalle.trim() || Number(f.valor))
+  if (!formItem.rubro.trim()) errItem.rubro = 'Elegí o escribí un rubro.'
+  if (!filas.length) errItem.varios = 'Cargá al menos un renglón.'
+  if (Object.keys(errItem).length) return
+
+  guardandoItem.value = true
+  try {
+    const rubroId = await db.resolverRubroId(formItem.rubro)
+    for (const f of filas) {
+      const valor = Number(f.valor) || 0
+      await db.crearItem({
+        obra_id: obraId,
+        fecha: fechaHoy,
+        rubro_id: rubroId,
+        proveedor_id: formItem.proveedorId || null,
+        detalle: f.detalle.trim() || null,
+        valor_proveedor: valor,
+        valor_presupuesto: valor,
+        valor_final: valor,
+        moneda: 'ARS',
+        moneda_proveedor: 'ARS',
+        incluido: valor !== 0,
+      })
+    }
+    filasVarios.value = [filaVariosVacia()]
+    enfocarVarios('d0')
+    await Promise.all([cargarItems(), cargarControl(), cargarConvergencia()])
+  } catch (e) {
+    errItem.varios = 'No se pudo guardar. Revisá la tabla y reintentá.'
+    console.error(e)
+  } finally {
+    guardandoItem.value = false
+  }
+}
+
 function abrirAltaItem() {
   editandoItemId.value = null
+  filasVarios.value = [filaVariosVacia()]
   Object.assign(formItem, formItemVacio())
   valorEditado.value = false
   Object.keys(errItem).forEach((k) => delete errItem[k])
@@ -1005,6 +1079,7 @@ function cancelarItem() {
 }
 
 async function agregarItem() {
+  if (modoVarios.value && !editandoItemId.value) return guardarVarios()
   Object.keys(errItem).forEach((k) => delete errItem[k])
   if (!formItem.rubro.trim()) errItem.rubro = 'Elegí o escribí un rubro.'
   if (formItem.incluido && !(Number(formItem.valor) > 0)) errItem.valor = 'Ingresá un valor mayor a cero.'
@@ -1562,6 +1637,11 @@ function cambiarTab(id) {
 }
 .money-note strong { color: var(--ink); font-weight: 600; }
 .item-form__actions { display: flex; justify-content: flex-end; align-items: center; gap: 20px; }
+.varios { display: flex; flex-direction: column; gap: 8px; }
+.varios__fila { display: grid; grid-template-columns: 1fr 200px 32px; align-items: center; gap: 12px; }
+.varios__quitar { height: 32px; border: none; background: none; color: var(--ink-faint); font-size: 20px; cursor: pointer; }
+.varios__quitar:hover:not(:disabled) { color: var(--negative); }
+.varios__quitar:disabled { opacity: 0.3; cursor: default; }
 
 .cell-strong { font-weight: 600; color: var(--ink); }
 .cell-nowrap { white-space: nowrap; }
