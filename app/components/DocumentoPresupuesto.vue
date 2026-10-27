@@ -192,7 +192,7 @@ const saldo = computed(() => totalGeneral.value - props.pagado)
 .doc__table th.col-num { text-align: right; }
 .col-rubro { width: 17%; font-weight: 600; color: #1c1a17; }
 .col-prov { width: 16%; color: #45423c; }
-.col-detalle { color: #45423c; }
+.col-detalle { color: #45423c; white-space: pre-line; }
 .col-total { font-weight: 600; color: #1c1a17; }
 .mono { font-variant-numeric: tabular-nums; white-space: nowrap; }
 

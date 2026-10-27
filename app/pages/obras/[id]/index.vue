@@ -271,10 +271,10 @@
           </fieldset>
 
           <!-- Detalle + notas -->
-          <div class="item-form__row item-form__row--2">
+          <div class="item-form__row">
             <div class="field-group">
               <label class="label">Detalle <span class="label-opt">(opcional)</span></label>
-              <input v-model="formItem.detalle" type="text" class="field" placeholder="Ej: Demolición y contrapiso" />
+              <textarea v-model="formItem.detalle" rows="3" class="field field--area" placeholder="Ej: Demolición y contrapiso. Enter para otro renglón"></textarea>
             </div>
             <div class="field-group">
               <label class="label">Notas <span class="label-opt">(opcional, interno)</span></label>
@@ -309,7 +309,7 @@
               <tr v-if="fila.tipo === 'item'" :class="{ 'row--editando': editandoItemId === fila.it.id, 'row--repite': fila.repite, 'row--apagado': !fila.it.incluido }">
                 <td class="cell-strong cell-nowrap">{{ fila.repite ? '' : fila.it.rubro?.nombre || '—' }}</td>
                 <td class="cell-muted cell-nowrap">{{ fila.repite ? '' : fila.it.proveedor?.nombre || '—' }}</td>
-                <td class="cell-muted">{{ fila.it.detalle || '—' }}</td>
+                <td class="cell-muted cell-lineas">{{ fila.it.detalle || '—' }}</td>
                 <td class="num monto">{{ fila.it.incluido ? fmt(fila.it.valor_final_ars) : Number(fila.it.valor_final) ? fmt(fila.it.valor_final) : '—' }}</td>
                 <td class="cell-acciones">
                   <div class="cell-acciones__inner">
@@ -413,7 +413,7 @@
             <tr v-for="f in filasProveedores" :key="f.key" :class="{ 'row--repite': f.repite, 'row--apagado': f.it && !f.it.incluido }">
               <td class="cell-strong cell-nowrap">{{ f.repite ? '' : f.rubro }}</td>
               <td class="cell-muted cell-nowrap">{{ f.repite ? '' : f.nombre }}</td>
-              <td class="cell-muted">{{ f.it?.detalle || '—' }}</td>
+              <td class="cell-muted cell-lineas">{{ f.it?.detalle || '—' }}</td>
               <td class="num monto">{{ f.it?.incluido ? fmt(f.it.valor_proveedor_ars) : '—' }}</td>
               <td v-if="compararPresupuesto" class="num monto">{{ f.it?.incluido ? fmt(f.it.valor_final_ars) : '—' }}</td>
               <td class="num monto monto--pos">{{ f.grupo ? fmt(f.grupo.pagado) : '' }}</td>
@@ -1566,6 +1566,8 @@ function cambiarTab(id) {
 .cell-strong { font-weight: 600; color: var(--ink); }
 .cell-nowrap { white-space: nowrap; }
 .cell-muted { color: var(--ink-muted); }
+.cell-lineas { white-space: pre-line; }
+.field--area { field-sizing: content; height: auto; min-height: 88px; max-height: 320px; padding: 10px 13px; line-height: 1.45; resize: none; }
 .cell-medio { display: block; font-size: 13px; color: var(--ink-faint); text-transform: capitalize; margin-top: 2px; }
 .table tfoot td { padding: 10px 14px; border-top: 1px solid var(--border); background: var(--surface-raised); }
 .cell-total-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-muted); }

@@ -19,6 +19,7 @@ logs
 .idea
 
 # Claude Code config local
+.claude/settings.json
 .claude/settings.local.json
 
 # Local env files
