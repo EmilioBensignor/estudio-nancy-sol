@@ -1054,6 +1054,7 @@ function abrirAltaItem() {
 }
 function editarItem(it) {
   editandoItemId.value = it.id
+  modoVarios.value = false
   const adicional = Number(it.valor_presupuesto) - Number(it.valor_proveedor)
   Object.assign(formItem, {
     proveedorId: it.proveedor_id || '',
