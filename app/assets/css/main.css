@@ -333,6 +333,7 @@ select.field { appearance: none; cursor: pointer; padding-right: 34px;
   background-position: right 13px center;
 }
 .field--num { font-family: var(--font-mono); text-align: right; }
+.field--formula { color: var(--accent); }
 
 
 .hint { font-size: 14px; color: var(--ink-faint); }

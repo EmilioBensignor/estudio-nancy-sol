@@ -51,6 +51,7 @@ es dato confidencial). Desde septiembre 2026 **Jessica** también puede retirar 
 | `SelectField.vue` | Select custom. `v-model` + `options` (strings o `{value, label}`). Siempre en vez de `<select>` |
 | `DateField.vue` | Datepicker. Guarda ISO `YYYY-MM-DD`, muestra `DD/MM/AAAA`. En vez de `<input type="date">` |
 | `RubroCombo.vue` | Rubro: texto libre + sugerencias, crea al vuelo |
+| `MontoField.vue` | Monto con fórmula (`=1000*1,21`, `350x12`, `1500+2300`). Sin foco muestra el resultado; parser en `app/utils/formula.js` |
 | `ConfirmDialog.vue` | `<dialog>` nativo para borrados. Prop `bloqueo`: deshabilita y explica por qué no se puede |
 | `DuplicarObraDialog.vue` | Duplica una obra con su presupuesto (sin caja ni retiros) |
 | `DocumentoPresupuesto.vue` | PDF del presupuesto para el cliente (impresión del navegador) |
@@ -147,6 +148,8 @@ Hecho:
 - Jessica y switches de quién retira por obra (migración 021). Al Río C: Solana y Jessica 50/50.
 - Ítems apagados (`presupuesto_items.incluido`, migración 022): aparecen sin valor en tabla y PDF y
   no suman en ningún lado, porque `v_presupuesto_items` multiplica todos los `*_ars` por `incluido`.
+- Montos con fórmula (migración 023): costo, adicional, valor final, varios ítems y monto de caja
+  guardan el texto en `formula_*` y lo muestran como tooltip del renglón. Las cuentas usan el número.
 - `supabase/migrations/` tiene el historial completo, con las mismas versiones que la base.
 
 Pendiente:

@@ -114,7 +114,7 @@
           <div class="field-group col-monto">
             <label class="label">Monto</label>
             <div class="monto-input">
-              <input v-model="formMov.monto" type="number" class="field field--num" :class="{ 'field--error': errMov.monto }" placeholder="0" @input="delete errMov.monto" />
+              <MontoField v-model="formMov.monto" :class="{ 'field--error': errMov.monto }" placeholder="0" @input="delete errMov.monto" />
               <button type="button" class="moneda-toggle" :class="{ 'moneda-toggle--on': enDolares }" @click="enDolares = !enDolares">
                 {{ enDolares ? 'US$' : '$' }}
               </button>
@@ -154,7 +154,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="m in movimientos" :key="m.id" :class="{ 'row--editando': editandoId === m.id }">
+            <tr v-for="m in movimientos" :key="m.id" :class="{ 'row--editando': editandoId === m.id }" :title="m.formula_monto ? `=${m.formula_monto}` : null">
               <td class="cell-date">{{ fmtFecha(m.fecha) }}</td>
               <td>
                 <span class="cell-strong">{{ descMov(m) }}</span>
@@ -242,7 +242,7 @@
             </div>
             <div v-for="(fila, i) in filasVarios" :key="fila.key" class="varios__fila">
               <input v-model="fila.detalle" :data-varios="`d${i}`" type="text" class="field" placeholder="Ej: Silla" @keydown.enter.prevent="enfocarVarios(`v${i}`)" />
-              <input v-model="fila.valor" :data-varios="`v${i}`" type="number" class="field field--num" placeholder="0" @keydown.enter.prevent="siguienteFilaVarios(i)" />
+              <MontoField v-model="fila.valor" :data-varios="`v${i}`" placeholder="0" @keydown.enter.prevent="siguienteFilaVarios(i)" />
               <button type="button" class="varios__quitar" aria-label="Quitar renglón" :disabled="filasVarios.length === 1" @click="filasVarios.splice(i, 1)">×</button>
             </div>
             <span v-if="errItem.varios" class="field-error">{{ errItem.varios }}</span>
@@ -257,7 +257,7 @@
             <div class="money-row">
               <div class="field-group">
                 <label class="label">Costo del proveedor</label>
-                <input ref="costoInput" v-model="formItem.costo" type="number" class="field field--num" placeholder="0" @input="sugerirFinal" />
+                <MontoField ref="costoInput" v-model="formItem.costo" placeholder="0" @input="sugerirFinal" />
               </div>
 
               <span class="money-op">+</span>
@@ -269,14 +269,14 @@
                     <span class="switch__knob"></span>
                   </button>
                 </div>
-                <input v-model="formItem.adicional" type="number" class="field field--num" :class="{ 'field--off': !formItem.adicionalOn }" placeholder="0" :disabled="!formItem.adicionalOn" @input="sugerirFinal" />
+                <MontoField v-model="formItem.adicional" :class="{ 'field--off': !formItem.adicionalOn }" placeholder="0" :disabled="!formItem.adicionalOn" @input="sugerirFinal" />
               </div>
 
               <span class="money-op">=</span>
 
               <div class="field-group">
                 <label class="label">Valor final</label>
-                <input v-model="formItem.valor" type="number" class="field field--num" :class="{ 'field--error': errItem.valor }" placeholder="0" @input="onValorInput" />
+                <MontoField v-model="formItem.valor" :class="{ 'field--error': errItem.valor }" placeholder="0" @input="onValorInput" />
                 <span v-if="errItem.valor" class="field-error">{{ errItem.valor }}</span>
               </div>
             </div>
@@ -329,7 +329,7 @@
           </thead>
           <tbody>
             <template v-for="(fila, i) in filasPresupuesto" :key="fila.tipo === 'item' ? fila.it.id : `sub-${i}`">
-              <tr v-if="fila.tipo === 'item'" :class="{ 'row--editando': editandoItemId === fila.it.id, 'row--repite': fila.repite, 'row--apagado': !fila.it.incluido }">
+              <tr v-if="fila.tipo === 'item'" :class="{ 'row--editando': editandoItemId === fila.it.id, 'row--repite': fila.repite, 'row--apagado': !fila.it.incluido }" :title="tituloFormulas(fila.it)">
                 <td class="cell-strong cell-nowrap">{{ fila.repite ? '' : fila.it.rubro?.nombre || '—' }}</td>
                 <td class="cell-muted cell-nowrap">{{ fila.repite ? '' : fila.it.proveedor?.nombre || '—' }}</td>
                 <td class="cell-muted cell-lineas">{{ fila.it.detalle || '—' }}</td>
@@ -433,7 +433,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="f in filasProveedores" :key="f.key" :class="{ 'row--repite': f.repite, 'row--apagado': f.it && !f.it.incluido }">
+            <tr v-for="f in filasProveedores" :key="f.key" :class="{ 'row--repite': f.repite, 'row--apagado': f.it && !f.it.incluido }" :title="f.it?.formula_costo ? `=${f.it.formula_costo}` : null">
               <td class="cell-strong cell-nowrap">{{ f.repite ? '' : f.rubro }}</td>
               <td class="cell-muted cell-nowrap">{{ f.repite ? '' : f.nombre }}</td>
               <td class="cell-muted cell-lineas">{{ f.it?.detalle || '—' }}</td>
@@ -740,7 +740,7 @@ function tcFormMov() {
 // Equivalente en pesos del monto del form, para previsualizar mientras se carga
 const equivPesos = computed(() => {
   const tc = tcFormMov()
-  const monto = Number(formMov.monto)
+  const monto = evaluarFormula(formMov.monto)
   if (formMov.moneda !== 'USD' || !tc || !(monto > 0)) return null
   return monto * tc
 })
@@ -756,7 +756,7 @@ function editarMov(m) {
   Object.assign(formMov, {
     tipo: m.tipo,
     proveedorId: m.proveedor_id || '',
-    monto: String(m.monto),
+    monto: m.formula_monto ?? String(m.monto),
     moneda: m.moneda,
     tcManual: m.moneda === 'USD' ? String(m.tipo_cambio) : '',
     medio: m.medio_pago || '',
@@ -777,7 +777,7 @@ async function agregarMovimiento() {
   Object.keys(errMov).forEach((k) => delete errMov[k])
   if (!formMov.tipo) errMov.tipo = 'Elegí el tipo.'
   if (esPago.value && !formMov.proveedorId) errMov.proveedor = 'Elegí el proveedor.'
-  if (!formMov.monto || Number(formMov.monto) <= 0) errMov.monto = 'Ingresá un monto mayor a cero.'
+  if (!(evaluarFormula(formMov.monto) > 0)) errMov.monto = 'Ingresá un monto mayor a cero.'
   if (!formMov.fecha) errMov.fecha = 'Elegí la fecha.'
   if (!enDolares.value && !formMov.medio) errMov.medio = 'Elegí el medio de pago.'
   const tc = tcFormMov()
@@ -790,7 +790,8 @@ async function agregarMovimiento() {
       obra_id: obraId,
       tipo: formMov.tipo,
       proveedor_id: esPago.value ? formMov.proveedorId : null,
-      monto: Number(formMov.monto),
+      monto: evaluarFormula(formMov.monto),
+      formula_monto: formulaDe(formMov.monto),
       moneda: formMov.moneda,
       tipo_cambio: tc,
       medio_pago: formMov.medio,
@@ -958,8 +959,8 @@ const errItem = reactive({})
 
 // Valor presupuesto = costo + adicional (el adicional solo cuenta si el switch está activo).
 const presupuestoItem = computed(() => {
-  const costo = Number(formItem.costo) || 0
-  const adicional = formItem.adicionalOn ? (Number(formItem.adicional) || 0) : 0
+  const costo = evaluarFormula(formItem.costo) || 0
+  const adicional = formItem.adicionalOn ? (evaluarFormula(formItem.adicional) || 0) : 0
   return costo + adicional
 })
 
@@ -1009,7 +1010,7 @@ function siguienteFilaVarios(i) {
 
 async function guardarVarios() {
   Object.keys(errItem).forEach((k) => delete errItem[k])
-  const filas = filasVarios.value.filter((f) => f.detalle.trim() || Number(f.valor))
+  const filas = filasVarios.value.filter((f) => f.detalle.trim() || evaluarFormula(f.valor))
   if (!formItem.rubro.trim()) errItem.rubro = 'Elegí o escribí un rubro.'
   if (!filas.length) errItem.varios = 'Cargá al menos un renglón.'
   if (Object.keys(errItem).length) return
@@ -1018,7 +1019,8 @@ async function guardarVarios() {
   try {
     const rubroId = await db.resolverRubroId(formItem.rubro)
     for (const f of filas) {
-      const valor = Number(f.valor) || 0
+      const valor = evaluarFormula(f.valor) || 0
+      const formula = formulaDe(f.valor)
       await db.crearItem({
         obra_id: obraId,
         fecha: fechaHoy,
@@ -1028,6 +1030,8 @@ async function guardarVarios() {
         valor_proveedor: valor,
         valor_presupuesto: valor,
         valor_final: valor,
+        formula_costo: formula,
+        formula_final: formula,
         moneda: 'ARS',
         moneda_proveedor: 'ARS',
         incluido: valor !== 0,
@@ -1060,10 +1064,10 @@ function editarItem(it) {
     proveedorId: it.proveedor_id || '',
     rubro: it.rubro?.nombre || '',
     detalle: it.detalle || '',
-    costo: String(it.valor_proveedor ?? ''),
+    costo: it.formula_costo ?? String(it.valor_proveedor ?? ''),
     adicionalOn: adicional !== 0,
-    adicional: adicional === 0 ? '' : String(adicional),
-    valor: String(it.valor_final ?? ''),
+    adicional: it.formula_adicional ?? (adicional === 0 ? '' : String(adicional)),
+    valor: it.formula_final ?? String(it.valor_final ?? ''),
     notas: it.notas || '',
     incluido: it.incluido,
   })
@@ -1083,14 +1087,14 @@ async function agregarItem() {
   if (modoVarios.value && !editandoItemId.value) return guardarVarios()
   Object.keys(errItem).forEach((k) => delete errItem[k])
   if (!formItem.rubro.trim()) errItem.rubro = 'Elegí o escribí un rubro.'
-  if (formItem.incluido && !(Number(formItem.valor) > 0)) errItem.valor = 'Ingresá un valor mayor a cero.'
+  if (formItem.incluido && !(evaluarFormula(formItem.valor) > 0)) errItem.valor = 'Ingresá un valor mayor a cero.'
   if (Object.keys(errItem).length) return
 
   guardandoItem.value = true
   try {
     const rubroId = await db.resolverRubroId(formItem.rubro)
-    const costo = Number(formItem.costo) || 0
-    const final = Number(formItem.valor) || 0
+    const costo = evaluarFormula(formItem.costo) || 0
+    const final = evaluarFormula(formItem.valor) || 0
     const presupuesto = presupuestoItem.value
     const payload = {
       rubro_id: rubroId,
@@ -1099,6 +1103,9 @@ async function agregarItem() {
       valor_proveedor: costo,
       valor_presupuesto: presupuesto,
       valor_final: final,
+      formula_costo: formulaDe(formItem.costo),
+      formula_adicional: formItem.adicionalOn ? formulaDe(formItem.adicional) : null,
+      formula_final: formulaDe(formItem.valor),
       notas: formItem.notas.trim() || null,
       moneda: 'ARS',
       moneda_proveedor: 'ARS',
@@ -1125,6 +1132,16 @@ async function agregarItem() {
   } finally {
     guardandoItem.value = false
   }
+}
+
+// Tooltip del renglón con las fórmulas del ítem. En "varios ítems" costo y final comparten fórmula.
+function tituloFormulas(it) {
+  const lineas = [
+    it.formula_costo && it.formula_costo !== it.formula_final && `Costo: =${it.formula_costo}`,
+    it.formula_adicional && `Adicional: =${it.formula_adicional}`,
+    it.formula_final && `Valor final: =${it.formula_final}`,
+  ].filter(Boolean)
+  return lineas.length ? lineas.join('\n') : null
 }
 
 async function toggleIncluido(it) {
