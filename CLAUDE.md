@@ -9,7 +9,7 @@ es dato confidencial). Desde septiembre 2026 **Jessica** también puede retirar 
 > - **ZONA 2 · ARQUITECTURA Y ESTADO**: rutas, datos, reglas contables, gotchas y qué falta.
 > - **ZONA 3 · RESTRICCIONES EXTERNAS**: Supabase, Vercel y el Excel. No se borran al refactorizar.
 >
-> Documentación: `docs/` (modelo de datos, objetivos, deploy, testing) · `docs/historial/`
+> Documentación: `docs/` (modelo de datos, objetivos, deploy, testing, `bitacora.md` con los cambios por fecha) · `docs/historial/`
 > (plan y spec de junio, solo referencia) · `PRODUCT.md` y `DESIGN.md` (producto y diseño, en la
 > raíz porque los lee `/impeccable`) · este archivo (reglas y arquitectura).
 
@@ -91,6 +91,7 @@ Fuente única de verdad. Las páginas usan clases compartidas y un `<style scope
 /proveedores/nuevo         alta (rubro con RubroCombo)
 /proveedores/[id]          deuda del proveedor en todas las obras
 /proveedores/[id]/editar   editar + eliminar (solo sin ítems ni movimientos)
+/rubros                    catálogo: renombrar + eliminar (solo sin usos)
 /retiros                   retiros de todas las obras, totales por socia
 ```
 
